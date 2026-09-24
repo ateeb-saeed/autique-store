@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autique Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- Admin login -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <h1>Autique Admin</h1>
+    <p class="login-sub">Sign in to manage the store.</p>
+    <form id="loginForm">
+      <label>Admin password
+        <input type="password" id="adminPassword" required autocomplete="current-password">
+      </label>
+      <p class="error-text" id="loginError"></p>
+      <button type="submit" class="btn-primary">Sign in</button>
+    </form>
+    <a href="index.html" class="back-link">&larr; Back to storefront</a>
+  </div>
+</div>
+
+<!-- Admin dashboard -->
+<div class="admin-shell hidden" id="adminShell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">AUTIQUE<span>Admin</span></div>
+    <nav>
+      <button class="nav-btn active" data-tab="products">Products</button>
+      <button class="nav-btn" data-tab="categories">Categories</button>
+      <button class="nav-btn" data-tab="coupons">Discount coupons</button>
+      <button class="nav-btn" data-tab="bundles">Bundles</button>
+      <button class="nav-btn" data-tab="sale">Sale</button>
+      <button class="nav-btn" data-tab="orders">Orders</button>
+      <button class="nav-btn" data-tab="settings">Admin settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <a href="index.html">View storefront</a>
+      <button id="adminLogoutBtn">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="admin-main">
+
+    <!-- Products -->
+    <section class="tab-panel" id="tab-products">
+      <div class="panel-head">
+        <h2>Products</h2>
+        <div class="panel-head-actions">
+          <button class="btn-secondary" id="showBulkImport">Bulk upload (CSV)</button>
+          <button class="btn-primary" id="showAddProduct">Add product</button>
+        </div>
+      </div>
+
+      <form class="inline-form-col hidden" id="bulkImportForm">
+        <p class="hint-text">
+          CSV columns: <code>name, category, price, sku, description, active, image</code> —
+          <code>category</code> must match an existing category name, <code>active</code> is
+          yes/no (blank = yes), <code>image</code> is a full image URL (optional). If a row's
+          SKU matches an existing product, that product is updated instead of duplicated.
+        </p>
+        <input type="file" id="bulkCsvFile" accept=".csv">
+        <button type="button" class="btn-primary" id="runBulkImport">Import</button>
+        <div id="bulkImportResult"></div>
+      </form>
+
+      <form class="inline-form-col hidden" id="addProductForm">
+        <input type="text" name="name" placeholder="Product name" required>
+        <input type="number" name="price" placeholder="Price (Rs.)" required min="0">
+        <select name="categoryKey" id="productCategorySelect" required></select>
+        <input type="text" name="sku" placeholder="SKU (leave blank to auto-generate)">
+        <input type="text" name="desc" placeholder="One-line description">
+        <div class="image-upload-row">
+          <input type="file" accept="image/*" class="image-file-input">
+          <input type="hidden" name="image">
+          <img class="image-preview hidden">
+        </div>
+        <button type="submit" class="btn-primary">Save</button>
+      </form>
+
+      <table class="data-table" id="productsTable">
+        <thead><tr><th>Image</th><th>Name</th><th>SKU</th><th>Category</th><th>Price</th><th>Active</th><th>Description</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Categories -->
+    <section class="tab-panel hidden" id="tab-categories">
+      <div class="panel-head">
+        <h2>Categories</h2>
+        <button class="btn-primary" id="showAddCategory">Add category</button>
+      </div>
+      <form class="inline-form hidden" id="addCategoryForm">
+        <input type="text" name="title" placeholder="Category name" required>
+        <input type="text" name="tagline" placeholder="One-line tagline">
+        <button type="submit" class="btn-primary">Save</button>
+      </form>
+      <table class="data-table" id="categoriesTable">
+        <thead><tr><th>Title</th><th>Tagline</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Coupons -->
+    <section class="tab-panel hidden" id="tab-coupons">
+      <div class="panel-head">
+        <h2>Discount coupons</h2>
+        <button class="btn-primary" id="showAddCoupon">Add coupon</button>
+      </div>
+      <form class="inline-form hidden" id="addCouponForm">
+        <input type="text" name="code" placeholder="CODE" required style="text-transform:uppercase;">
+        <select name="type">
+          <option value="percent">% off</option>
+          <option value="fixed">Rs. off</option>
+        </select>
+        <input type="number" name="value" placeholder="Value" required min="0">
+        <input type="date" name="expiresAt">
+        <button type="submit" class="btn-primary">Save</button>
+      </form>
+      <table class="data-table" id="couponsTable">
+        <thead><tr><th>Code</th><th>Discount</th><th>Expires</th><th>Active</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Bundles -->
+    <section class="tab-panel hidden" id="tab-bundles">
+      <div class="panel-head">
+        <h2>Bundles</h2>
+        <button class="btn-primary" id="showAddBundle">Add bundle</button>
+      </div>
+      <form class="inline-form-col hidden" id="addBundleForm">
+        <input type="text" name="title" placeholder="Bundle name, e.g. September Shine Bundle" required>
+        <input type="text" name="desc" placeholder="One-line description">
+        <div class="checkbox-grid" id="bundleProductChecks"></div>
+        <input type="number" name="bundlePrice" placeholder="Bundle price (Rs.)" required min="0">
+        <button type="submit" class="btn-primary">Save bundle</button>
+      </form>
+      <table class="data-table" id="bundlesTable">
+        <thead><tr><th>Title</th><th>Includes</th><th>Bundle price</th><th>Individual total</th><th>Active</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Sale -->
+    <section class="tab-panel hidden" id="tab-sale">
+      <div class="panel-head"><h2>Storewide sale</h2></div>
+      <form class="settings-form" id="saleForm">
+        <label class="toggle-row">
+          <input type="checkbox" name="saleActive" id="saleActive">
+          <span>Sale is currently active</span>
+        </label>
+        <label>Sale label (shown on the storefront)
+          <input type="text" name="saleLabel" id="saleLabel" placeholder="e.g. Eid Sale — 20% off everything">
+        </label>
+        <label>Discount percentage
+          <input type="number" name="saleDiscountPercent" id="saleDiscountPercent" min="0" max="90">
+        </label>
+        <label>Applies to
+          <select name="saleAppliesTo" id="saleAppliesTo"></select>
+        </label>
+        <p class="success-text" id="saleSaved"></p>
+        <button type="submit" class="btn-primary">Save sale settings</button>
+      </form>
+    </section>
+
+    <!-- Orders -->
+    <section class="tab-panel hidden" id="tab-orders">
+      <div class="panel-head"><h2>Orders</h2></div>
+      <table class="data-table" id="ordersTable">
+        <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Admin settings -->
+    <section class="tab-panel hidden" id="tab-settings">
+      <div class="panel-head"><h2>Admin settings</h2></div>
+      <form class="settings-form" id="passwordForm">
+        <label>Current password
+          <input type="password" name="currentPassword" required>
+        </label>
+        <label>New password
+          <input type="password" name="newPassword" required minlength="6">
+        </label>
+        <p class="error-text" id="passwordError"></p>
+        <p class="success-text" id="passwordSuccess"></p>
+        <button type="submit" class="btn-primary">Change password</button>
+      </form>
+    </section>
+
+  </main>
+</div>
+
+<!-- Variants modal -->
+<div class="overlay" id="variantsOverlay"></div>
+<div class="modal" id="variantsModal">
+  <button class="close-btn" id="closeVariantsBtn" aria-label="Close">&times;</button>
+  <h2 class="modal-title">Variants for <span id="variantsProductName"></span></h2>
+  <p class="hint-text">Add a color and/or size option with its own price, SKU and picture — e.g. "Grey" and "Black" versions of the same product.</p>
+
+  <table class="data-table" id="variantsTable">
+    <thead><tr><th>Image</th><th>Color</th><th>Size</th><th>Price</th><th>SKU</th><th>Active</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <form class="inline-form-col" id="addVariantForm">
+    <input type="text" name="color" placeholder="Color (optional)">
+    <input type="text" name="size" placeholder="Size (optional)">
+    <input type="number" name="price" placeholder="Price (Rs.)" required min="0">
+    <input type="text" name="sku" placeholder="SKU (leave blank to auto-generate)">
+    <div class="image-upload-row">
+      <input type="file" accept="image/*" class="image-file-input">
+      <input type="hidden" name="image">
+      <img class="image-preview hidden">
+    </div>
+    <button type="submit" class="btn-primary">Add variant</button>
+  </form>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>

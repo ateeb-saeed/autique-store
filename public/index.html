@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autique — Car Care</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="announce">Cash on delivery available across Pakistan</div>
+
+<div class="topbar">
+  <a class="brand" href="#top">AUTIQUE</a>
+  <nav class="topnav" id="topnav"></nav>
+  <div class="topbar-actions">
+    <button class="account-btn" id="accountBtn">Sign in</button>
+    <button class="cart-btn" id="cartBtn" aria-label="Open cart">
+      <span>Cart</span>
+      <span class="cart-count" id="cartCount">0</span>
+    </button>
+  </div>
+</div>
+
+<div class="hero" id="top">
+  <h1>Autique</h1>
+  <div class="lattice"></div>
+  <p class="tagline">Shine worthy of a durbar</p>
+  <div class="brand-pills">
+    <span class="pill">Gladiator</span>
+    <span class="pill">Sogo</span>
+    <span class="pill">Prato</span>
+    <span class="pill">WTB</span>
+  </div>
+</div>
+
+<div class="sale-banner hidden" id="saleBanner"></div>
+
+<section class="bundles-section hidden" id="bundlesSection">
+  <div class="category-head">
+    <h2>This Month's Bundles</h2>
+    <p>Save more when you pair products together.</p>
+  </div>
+  <div class="grid" id="bundlesGrid"></div>
+</section>
+
+<main id="categories"></main>
+
+<footer>
+  <span class="brand">AUTIQUE</span>
+  Premium car care for the discerning driver &mdash; built on localhost, bound for autique.pk
+</footer>
+
+<!-- Cart drawer -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-label="Shopping cart">
+  <div class="drawer-head">
+    <h2>Your Cart</h2>
+    <button class="close-btn" id="closeCartBtn" aria-label="Close cart">&times;</button>
+  </div>
+  <div class="drawer-items" id="drawerItems"></div>
+  <div class="drawer-foot">
+    <div class="coupon-row">
+      <input type="text" id="couponInput" placeholder="Discount code">
+      <button class="icon-btn" id="applyCouponBtn">Apply</button>
+    </div>
+    <p class="coupon-msg" id="couponMsg"></p>
+    <div class="signed-in-as" id="signedInAs"></div>
+    <div class="total-row" id="subtotalRow"></div>
+    <div class="total-row"><span>Total</span><span id="totalVal">Rs. 0</span></div>
+    <button class="checkout-btn" id="checkoutBtn">Checkout</button>
+  </div>
+</aside>
+
+<!-- Checkout form -->
+<div class="overlay" id="checkoutOverlay"></div>
+<div class="auth-modal" id="checkoutModal" aria-label="Checkout">
+  <button class="close-btn auth-close" id="closeCheckoutBtn" aria-label="Close">&times;</button>
+  <h2 class="modal-title">Delivery details</h2>
+  <form class="auth-form" id="checkoutForm">
+    <label>Full name
+      <input type="text" name="name" required>
+    </label>
+    <label>Phone number
+      <input type="tel" name="phone" required>
+    </label>
+    <label>Address
+      <input type="text" name="address" required>
+    </label>
+    <label>City
+      <input type="text" name="city" required>
+    </label>
+
+    <div class="payment-choice">
+      <label class="payment-option">
+        <input type="radio" name="paymentMethod" value="cod" checked>
+        <span>Cash on delivery</span>
+      </label>
+      <label class="payment-option">
+        <input type="radio" name="paymentMethod" value="card">
+        <span>Card</span>
+      </label>
+    </div>
+
+    <div class="card-fields hidden" id="cardFields">
+      <input type="text" name="cardNumber" placeholder="Card number">
+      <div class="card-fields-row">
+        <input type="text" name="cardExpiry" placeholder="MM/YY">
+        <input type="text" name="cardCvc" placeholder="CVC">
+      </div>
+      <p class="card-note">This is a local demo — no real payment is processed yet.</p>
+    </div>
+
+    <p class="auth-error" id="checkoutError"></p>
+    <button type="submit" class="auth-submit">Place order</button>
+  </form>
+</div>
+
+<!-- Order confirmation -->
+<div class="overlay" id="confirmOverlay"></div>
+<div class="auth-modal" id="confirmModal" aria-label="Order confirmed">
+  <h2 class="modal-title">Order confirmed</h2>
+  <div id="confirmContent"></div>
+  <button class="auth-submit" id="continueShoppingBtn">Continue shopping</button>
+</div>
+
+<!-- Sign in / create account modal -->
+<div class="overlay" id="authOverlay"></div>
+<div class="auth-modal" id="authModal" aria-label="Sign in or create an account">
+  <button class="close-btn auth-close" id="closeAuthBtn" aria-label="Close">&times;</button>
+  <div class="auth-tabs">
+    <button class="auth-tab active" data-tab="signin">Sign in</button>
+    <button class="auth-tab" data-tab="signup">Create account</button>
+  </div>
+
+  <p class="auth-note" id="authNote"></p>
+
+  <form class="auth-form" id="signinForm">
+    <label>Email
+      <input type="email" name="email" required autocomplete="email">
+    </label>
+    <label>Password
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <p class="auth-error" id="signinError"></p>
+    <button type="submit" class="auth-submit">Sign in</button>
+  </form>
+
+  <form class="auth-form hidden" id="signupForm">
+    <label>Name
+      <input type="text" name="name" required autocomplete="name">
+    </label>
+    <label>Email
+      <input type="email" name="email" required autocomplete="email">
+    </label>
+    <label>Password
+      <input type="password" name="password" required autocomplete="new-password" minlength="6">
+    </label>
+    <p class="auth-error" id="signupError"></p>
+    <button type="submit" class="auth-submit">Create account</button>
+  </form>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
