@@ -7,6 +7,8 @@ const multer = require('multer');
 
 const store = require('./lib/store');
 const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./lib/pricing');
+const gateway = require('./lib/rapidgateway');
+const crypto = require('crypto');
 
 store.seed();
 
@@ -27,7 +29,7 @@ const upload = multer({ storage: uploadStorage, limits: { fileSize: 5 * 1024 * 1
 
 function publicUser(u) { return { id: u.id, name: u.name, email: u.email }; }
 
-app.use(express.json());
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'autique-dev-secret-change-me',
@@ -191,7 +193,7 @@ app.get('/api/products', (req, res) => {
 
 app.get('/api/settings', (req, res) => {
   const s = store.getSettings();
-  res.json({ saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo });
+  res.json({ saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo, paymentMode: gateway.mode });
 });
 
 app.get('/api/bundles', (req, res) => {
@@ -223,7 +225,7 @@ app.post('/api/coupons/validate', (req, res) => {
 // Orders (checkout)
 // =========================================================
 // Signed-in customers and guests can both check out; guests give an email.
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', async (req, res) => {
   const { items, variants: variantItems, bundles: bundleItems, couponCode, paymentMethod, shipping } = req.body || {};
   const hasItems = Array.isArray(items) && items.length > 0;
   const hasVariants = Array.isArray(variantItems) && variantItems.length > 0;
@@ -301,6 +303,8 @@ app.post('/api/orders', (req, res) => {
     couponCode: appliedCode,
     total,
     paymentMethod,
+    accessToken: crypto.randomBytes(16).toString('hex'),
+    paymentStatus: paymentMethod === 'cod' ? 'unpaid' : 'pending',
     shipping: {
       name: String(shipping.name), phone: String(shipping.phone), email,
       address: String(shipping.address), city: String(shipping.city),
@@ -312,7 +316,144 @@ app.post('/api/orders', (req, res) => {
   orders.push(order);
   store.saveOrders(orders);
 
-  res.json({ order });
+  if (paymentMethod !== 'card') return res.json({ order });
+  try {
+    const checkoutUrl = await startCardPayment(order, req);
+    res.json({ order: store.getOrders().find(o => o.id === order.id), checkoutUrl });
+  } catch (e) {
+    console.error('Rapid Gateway payment could not be started:', e.message);
+    res.status(502).json({ order, error: 'We could not open the card payment page. Your order is saved, so you can try paying again from the next screen, or place a new order with cash on delivery.' });
+  }
+});
+
+// =========================================================
+// Card payments (Rapid Gateway hosted checkout)
+// =========================================================
+function baseUrl(req) {
+  return (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+}
+
+async function startCardPayment(order, req) {
+  const base = baseUrl(req);
+  const { id, checkoutUrl } = await gateway.createPayment({
+    order,
+    baseUrl: base,
+    callbackUrl: `${base}/payment/return?order=${encodeURIComponent(order.orderNumber)}`,
+    webhookUrl: `${base}/api/payments/webhook`
+  });
+  const orders = store.getOrders();
+  const o = orders.find(x => x.id === order.id);
+  o.paymentId = id;
+  o.paymentStatus = 'pending';
+  store.saveOrders(orders);
+  return checkoutUrl;
+}
+
+// Record a payment result on its order. Safe to call more than once.
+function applyPaymentResult(match, status) {
+  if (status !== 'paid' && status !== 'failed') return null;
+  const orders = store.getOrders();
+  const o = orders.find(match);
+  if (!o || o.paymentStatus === 'paid') return o || null;
+  o.paymentStatus = status;
+  if (status === 'paid') {
+    o.paidAt = new Date().toISOString();
+    if (o.status === 'Pending payment') o.status = 'Confirmed';
+  }
+  store.saveOrders(orders);
+  return o;
+}
+
+function publicOrder(o) {
+  return {
+    orderNumber: o.orderNumber, customerName: o.customerName, customerEmail: o.customerEmail,
+    items: o.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+    subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
+    paymentMethod: o.paymentMethod, paymentStatus: o.paymentStatus || (o.paymentMethod === 'cod' ? 'unpaid' : 'pending'),
+    status: o.status, createdAt: o.createdAt, shipping: o.shipping
+  };
+}
+
+function findOrderForViewer(req, orderNumber, token) {
+  const o = store.getOrders().find(x => x.orderNumber === orderNumber);
+  if (!o) return null;
+  const owner = req.session.userId && o.userId === req.session.userId;
+  const tokenOk = token && o.accessToken && token.length === o.accessToken.length &&
+    crypto.timingSafeEqual(Buffer.from(token), Buffer.from(o.accessToken));
+  return owner || tokenOk ? o : null;
+}
+
+// The gateway sends the customer back here. Re-check the status with the gateway
+// rather than trusting anything in the URL, then show the order page.
+app.get('/payment/return', async (req, res) => {
+  const o = store.getOrders().find(x => x.orderNumber === String(req.query.order || ''));
+  if (!o) return res.redirect('/#/');
+  if (o.paymentId && o.paymentStatus !== 'paid') {
+    try { applyPaymentResult(x => x.id === o.id, await gateway.getPaymentStatus(o.paymentId)); }
+    catch (e) { console.error('Rapid Gateway status check failed:', e.message); }
+  }
+  res.redirect(`/#/order/${encodeURIComponent(o.orderNumber)}`);
+});
+
+// Server-to-server notification from the gateway.
+app.post('/api/payments/webhook', (req, res) => {
+  const event = gateway.parseWebhook(req.rawBody || Buffer.from(''), req.headers);
+  if (!event) return res.status(400).json({ error: 'Invalid signature.' });
+  applyPaymentResult(o => (event.paymentId && o.paymentId === event.paymentId) || (event.reference && o.orderNumber === event.reference), event.status);
+  res.json({ received: true });
+});
+
+app.get('/api/order-status/:orderNumber', async (req, res) => {
+  let o = findOrderForViewer(req, req.params.orderNumber, String(req.query.t || ''));
+  if (!o) return res.status(404).json({ error: 'Order not found.' });
+  if (o.paymentMethod === 'card' && o.paymentId && o.paymentStatus === 'pending') {
+    try { o = applyPaymentResult(x => x.id === o.id, await gateway.getPaymentStatus(o.paymentId)) || o; }
+    catch (e) { console.error('Rapid Gateway status check failed:', e.message); }
+  }
+  res.json({ order: publicOrder(o) });
+});
+
+// Start a fresh payment attempt for an unpaid card order.
+app.post('/api/orders/:orderNumber/pay', async (req, res) => {
+  const o = findOrderForViewer(req, req.params.orderNumber, String((req.body && req.body.t) || ''));
+  if (!o) return res.status(404).json({ error: 'Order not found.' });
+  if (o.paymentMethod !== 'card') return res.status(400).json({ error: 'This order is paid on delivery.' });
+  if (o.paymentStatus === 'paid') return res.status(400).json({ error: 'This order is already paid.' });
+  if (o.status === 'Cancelled') return res.status(400).json({ error: 'This order was cancelled.' });
+  try {
+    res.json({ checkoutUrl: await startCardPayment(o, req) });
+  } catch (e) {
+    console.error('Rapid Gateway payment could not be started:', e.message);
+    res.status(502).json({ error: 'We could not open the card payment page. Please try again in a moment.' });
+  }
+});
+
+// ---- Test mode only: a stand-in for the gateway's card page ----
+app.get('/pay/test/:id', (req, res) => {
+  if (gateway.mode !== 'test') return res.status(404).send('Not found');
+  const p = gateway.testFind(req.params.id);
+  if (!p) return res.status(404).send('Payment not found');
+  const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test card payment</title><style>
+body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#fff;color:#0f1b2b;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}
+.box{width:min(420px,100%);border:1.5px solid #0f1b2b;border-radius:22px;padding:30px;text-align:center}
+.tag{display:inline-block;border:1.5px solid #b4413c;color:#b4413c;border-radius:999px;padding:4px 12px;font-size:.78rem;font-weight:700}
+h1{font-size:1.3rem;margin:14px 0 4px}.amt{font-size:2.2rem;font-weight:800;margin:10px 0 6px}p{color:#4b586b;font-size:.92rem;line-height:1.5}
+button{width:100%;border-radius:999px;padding:14px;font:inherit;font-weight:600;cursor:pointer;border:1.5px solid #0f1b2b;margin-top:10px}
+.ok{background:#0f1b2b;color:#fff}.no{background:#fff;color:#0f1b2b}</style></head><body><div class="box">
+<span class="tag">Test mode</span><h1>Rapid Gateway (simulated)</h1><div class="amt">Rs. ${Number(p.amount).toLocaleString('en-US')}</div>
+<p>Order ${esc(p.orderNumber)}. This page stands in for the real card page until Rapid Gateway keys are added. No money moves.</p>
+${p.status === 'pending' ? `<form method="post" action="/api/payments/test/${esc(p.id)}"><button class="ok" name="approve" value="1">Approve test payment</button><button class="no" name="approve" value="0">Decline test payment</button></form>`
+  : `<p>This payment is already ${esc(p.status)}.</p><form method="post" action="/api/payments/test/${esc(p.id)}"><button class="ok" name="approve" value="1">Back to the store</button></form>`}
+</div></body></html>`);
+});
+
+app.post('/api/payments/test/:id', express.urlencoded({ extended: false }), (req, res) => {
+  if (gateway.mode !== 'test') return res.status(404).send('Not found');
+  const p = gateway.testComplete(req.params.id, req.body && req.body.approve === '1');
+  if (!p) return res.status(404).send('Payment not found');
+  res.redirect(303, p.callbackUrl);
 });
 
 app.get('/api/my-orders', requireCustomer, (req, res) => {
@@ -322,7 +463,8 @@ app.get('/api/my-orders', requireCustomer, (req, res) => {
     .map(o => ({
       orderNumber: o.orderNumber, items: o.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
       subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
-      paymentMethod: o.paymentMethod, status: o.status, createdAt: o.createdAt,
+      paymentMethod: o.paymentMethod, paymentStatus: o.paymentStatus || (o.paymentMethod === 'cod' ? 'unpaid' : 'pending'),
+      status: o.status, createdAt: o.createdAt,
       courier: o.courier || '', trackingNumber: o.trackingNumber || ''
     }));
   res.json({ orders });
@@ -651,8 +793,12 @@ function findStockItem(products, key) {
   return variant ? { product, variant, target: variant } : null;
 }
 
+function isAwaitingCardPayment(o) {
+  return o.paymentMethod === 'card' && o.paymentStatus !== 'paid';
+}
+
 function isOpenOrder(o) {
-  return !o.dispatchedAt && !CLOSED_STATUSES.includes(o.status);
+  return !o.dispatchedAt && !CLOSED_STATUSES.includes(o.status) && !isAwaitingCardPayment(o);
 }
 
 app.post('/api/logistics/login', (req, res) => {
@@ -740,6 +886,7 @@ app.get('/api/logistics/orders', requireLogistics, (req, res) => {
       return { name: i.name, qty: i.qty, sku: found ? (found.target.sku || '') : '', contents };
     }),
     paymentMethod: o.paymentMethod,
+    paymentStatus: o.paymentStatus || (o.paymentMethod === 'cod' ? 'unpaid' : 'pending'),
     codAmount: o.paymentMethod === 'cod' ? o.total : null,
     status: o.status,
     open: isOpenOrder(o),
@@ -756,6 +903,7 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogistics, (req, res) => {
   const orders = store.getOrders();
   const order = orders.find(o => o.id === Number(req.params.id));
   if (!order) return res.status(404).json({ error: 'Order not found.' });
+  if (isAwaitingCardPayment(order) && !order.dispatchedAt) return res.status(400).json({ error: 'This card order has not been paid yet.' });
   if (!isOpenOrder(order)) return res.status(400).json({ error: `This order is already ${order.status.toLowerCase()}.` });
 
   const products = store.getProducts();
@@ -807,7 +955,7 @@ function dayKey(date) {
 }
 
 function orderTotals(list) {
-  const sales = list.filter(o => o.status !== 'Cancelled');
+  const sales = list.filter(o => o.status !== 'Cancelled' && !isAwaitingCardPayment(o));
   const revenue = sales.reduce((s, o) => s + o.total, 0);
   return {
     revenue,
@@ -827,7 +975,7 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
   const allOrders = store.getOrders();
   const inRange = allOrders.filter(o => new Date(o.createdAt) >= start);
   const inPrev = allOrders.filter(o => { const t = new Date(o.createdAt); return t >= prevStart && t < start; });
-  const sales = inRange.filter(o => o.status !== 'Cancelled');
+  const sales = inRange.filter(o => o.status !== 'Cancelled' && !isAwaitingCardPayment(o));
 
   // Daily revenue and order counts, with empty days filled in
   const daily = [];

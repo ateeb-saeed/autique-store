@@ -19,7 +19,7 @@ async function api(url, opts = {}) {
   let r;
   try { r = await fetch(url, o); } catch { throw new Error('We cannot reach the store right now. Please check your connection and try again.'); }
   let data = null; try { data = await r.json(); } catch { /* not json */ }
-  if (!r.ok) { const e = new Error((data && data.error) || 'Something went wrong. Please try again.'); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error((data && data.error) || 'Something went wrong. Please try again.'); e.status = r.status; e.data = data; throw e; }
   return data;
 }
 function toast(msg, opts = {}) {
@@ -38,6 +38,19 @@ const ICON = {
   shield: '<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
 };
+// Order access tokens let guests reopen their order page (e.g. after the card page)
+const TOKENS_KEY = 'autique_order_tokens';
+const orderTokens = {
+  all() { try { return JSON.parse(localStorage.getItem(TOKENS_KEY) || '{}') || {}; } catch { return {}; } },
+  get(n) { return this.all()[n] || ''; },
+  set(n, t) { const a = this.all(); a[n] = t; try { localStorage.setItem(TOKENS_KEY, JSON.stringify(a)); } catch { /* private mode */ } }
+};
+const PAY_LABEL = { paid: 'Paid', pending: 'Awaiting payment', failed: 'Payment failed', unpaid: 'Pay on delivery' };
+async function startPayment(orderNumber) {
+  const { checkoutUrl } = await api(`/api/orders/${encodeURIComponent(orderNumber)}/pay`, { method: 'POST', body: { t: orderTokens.get(orderNumber) } });
+  location.href = checkoutUrl;
+}
+
 const imgOrIcon = src => src ? `<img src="${esc(src)}" alt="" loading="lazy">` : BOTTLE;
 const variantLabel = v => [v.color, v.size].filter(Boolean).join(' / ') || 'Standard';
 
@@ -124,7 +137,7 @@ function renderChrome() {
     <div><a class="foot-logo" href="#/"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:32ch">Premium car care for the discerning driver. Shine worthy of a durbar.</p></div>
     <div><h4>Shop</h4>${S.categories.slice(0, 5).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}</div>
     <div><h4>Account</h4><a href="#/account">My orders</a><a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}</div>
-    <div><h4>Help</h4><p>Cash on delivery across Pakistan</p><p>Card payments coming soon</p></div>
+    <div><h4>Help</h4><p>Cash on delivery across Pakistan</p><p>Secure card payments by Rapid Gateway</p></div>
   </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} Autique. All rights reserved.</div></div>`;
 }
 function openMenu(open) {
@@ -327,20 +340,30 @@ routes.push([/^\/checkout$/, async () => {
     </div></div>
     <div class="box"><h3>Payment</h3>
       <label class="pay-opt on"><input type="radio" name="paymentMethod" value="cod" checked data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>
-      <label class="pay-opt"><input type="radio" name="paymentMethod" value="card" data-change="pay-pick"><div><b>Card</b><span>We confirm your order once payment is verified. Card payments are not live yet, so no card is charged.</span></div></label>
+      <label class="pay-opt"><input type="radio" name="paymentMethod" value="card" data-change="pay-pick"><div><b>Debit or credit card</b><span>Visa, Mastercard or UnionPay. You will pay securely on Rapid Gateway's page, then come back here.${S.settings.paymentMode === 'test' ? ' <strong>Test mode:</strong> no real card is charged.' : ''}</span></div></label>
     </div>
   </div>
   <div>${summaryHTML(t, `<div id="co-err"></div><button class="btn btn-primary btn-lg btn-block" type="submit" style="margin-top:16px">Place order</button>${t.code ? `<p class="small muted" style="margin-top:12px;text-align:center">Code ${esc(t.code)} applied.</p>` : ''}`, itemRows)}</div></form></div>`;
 }]);
 
-// ORDER CONFIRMATION (the order comes back from checkout; kept for this browser tab)
-routes.push([/^\/order\/([\w-]+)$/, m => {
-  let o = null;
-  try { o = JSON.parse(sessionStorage.getItem('autique_last_order') || 'null'); } catch { /* ignore */ }
-  if (!o || o.orderNumber !== m[1]) return S.user ? go('/account') : `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/login?next=/account">Sign in</a></p></div></div>`;
-  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>Thank you, ${esc(o.customerName.split(' ')[0])}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. ${S.user ? 'You can find it any time under My orders.' : 'Keep your order number handy in case you need to contact us.'}</p></div>
-    <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap"><span class="status">${esc(o.status)}</span></div>
-    ${o.paymentMethod === 'cod' ? `<div class="note">Please keep <b>${fmt(o.total)}</b> ready for the courier.</div>` : '<div class="note">We will confirm your order once payment is verified. No card has been charged.</div>'}
+// ORDER CONFIRMATION (live status from the server; guests use the token saved at checkout)
+function paymentNote(o) {
+  if (o.paymentMethod === 'cod') return `<div class="note">Please keep <b>${fmt(o.total)}</b> ready for the courier.</div>`;
+  if (o.paymentStatus === 'paid') return `<div class="note ok">Payment of <b>${fmt(o.total)}</b> received by card. Thank you!</div>`;
+  if (o.paymentStatus === 'failed') return `<div class="note err">Your card payment did not go through, so nothing was charged. <button class="link" data-act="pay-order" data-n="${esc(o.orderNumber)}">Try paying again</button></div>`;
+  return `<div class="note">We are waiting for Rapid Gateway to confirm your payment of <b>${fmt(o.total)}</b>. <button class="link" data-act="refresh">Check again</button> or <button class="link" data-act="pay-order" data-n="${esc(o.orderNumber)}">open the payment page</button>.</div>`;
+}
+routes.push([/^\/order\/([\w-]+)$/, async m => {
+  let o;
+  try { o = (await api(`/api/order-status/${encodeURIComponent(m[1])}?t=${encodeURIComponent(orderTokens.get(m[1]))}`)).order; }
+  catch (e) {
+    if (e.status !== 404) throw e;
+    return `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/login?next=/account">Sign in</a></p></div></div>`;
+  }
+  const heading = o.paymentMethod === 'card' && o.paymentStatus !== 'paid' ? 'Almost done' : `Thank you, ${esc(o.customerName.split(' ')[0])}`;
+  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. ${S.user ? 'You can find it any time under My orders.' : 'Keep your order number handy in case you need to contact us.'}</p></div>
+    <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap"><span class="status">${esc(o.status)}</span><span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div>
+    ${paymentNote(o)}
     <div class="box"><h3>Items</h3>${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
       <div class="sum-row" style="margin-top:10px;border-top:1px solid var(--line);padding-top:14px"><span>Subtotal</span><span>${fmt(o.subtotal)}</span></div>
       ${o.discount ? `<div class="sum-row disc"><span>Code ${esc(o.couponCode)}</span><span>&minus;${fmt(o.discount)}</span></div>` : ''}
@@ -370,7 +393,8 @@ routes.push([/^\/account$/, async () => {
   const body = orders.length ? orders.map(o => `<div class="order-card"><div class="order-top"><div><b>${esc(o.orderNumber)}</b> <span class="muted small">&middot; ${fdate(o.createdAt)}</span></div><span class="status ${o.status === 'Cancelled' ? 'bad' : ''}">${esc(o.status)}</span></div>
       <div class="order-lines">${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}</div>
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
-      <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card'}</span></div></div>`).join('')
+      <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
+      ${o.paymentMethod === 'card' && o.paymentStatus !== 'paid' && o.status !== 'Cancelled' ? `<button class="btn btn-primary btn-sm" style="margin-top:12px" data-act="pay-order" data-n="${esc(o.orderNumber)}">Pay now</button>` : ''}</div>`).join('')
     : '<div class="empty"><h3>No orders yet</h3><p>When you place an order it will appear here.</p><p style="margin-top:18px"><a class="btn btn-primary" href="#/shop">Start shopping</a></p></div>';
   return `<div class="container"><div class="page-head"><h1>Hi, ${esc(S.user.name.split(' ')[0])}</h1><p>Your orders and account.</p></div>
     <div class="tabs"><span class="pill on">Orders</span><button class="pill" data-act="logout">Sign out</button></div>${body}</div>`;
@@ -387,6 +411,8 @@ const actions = {
     if (q < 1) return;
     cart.set(el.dataset.type, el.dataset.key, q); await route();
   },
+  'pay-order': async el => { el.disabled = true; try { await startPayment(el.dataset.n); } catch (e) { el.disabled = false; throw e; } },
+  refresh: () => route(),
   'cart-remove': async el => { cart.remove(el.dataset.type, el.dataset.key); await route(); },
   logout: async () => { await api('/api/logout', { method: 'POST' }); S.user = null; openMenu(false); toast('Signed out'); go('/'); renderChrome(); }
 };
@@ -398,14 +424,22 @@ const forms = {
     err.innerHTML = ''; btn.disabled = true; btn.textContent = 'Placing order...';
     const f = Object.fromEntries(new FormData(form));
     try {
-      const { order } = await api('/api/orders', { method: 'POST', body: {
+      const { order, checkoutUrl } = await api('/api/orders', { method: 'POST', body: {
         ...cart.payload(), couponCode, paymentMethod: f.paymentMethod,
         shipping: { name: f.name, phone: f.phone, email: f.email, address: f.address, city: f.city, province: f.province, notes: f.notes }
       } });
-      try { sessionStorage.setItem('autique_last_order', JSON.stringify(order)); } catch { /* ignore */ }
+      orderTokens.set(order.orderNumber, order.accessToken);
       cart.clear(); couponCode = '';
+      if (checkoutUrl) { btn.textContent = 'Opening secure payment...'; location.href = checkoutUrl; return; }
       go('/order/' + order.orderNumber);
     } catch (e) {
+      // The order was saved but the card page could not be opened: show it, with a retry
+      if (e.data && e.data.order) {
+        orderTokens.set(e.data.order.orderNumber, e.data.order.accessToken);
+        cart.clear(); couponCode = '';
+        toast(e.message, { err: true, ms: 6000 });
+        return go('/order/' + e.data.order.orderNumber);
+      }
       err.innerHTML = `<div class="note err">${esc(e.message)}</div>`;
       btn.disabled = false; btn.textContent = 'Place order';
     }

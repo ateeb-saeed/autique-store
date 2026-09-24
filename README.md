@@ -99,9 +99,40 @@ no prices and can't change products, coupons, sales or settings.
    Card.
 5. See an order confirmation screen with their order number and total.
 
-Card payment is currently a stub — it records the order as "Pending
-payment" but doesn't charge a real card yet. That's the natural next
-step once you're ready to connect Rapid Gateway.
+## Card payments (Rapid Gateway)
+
+Card orders go through Rapid Gateway's hosted checkout: the customer places
+the order, is sent to Rapid Gateway's card page, and comes back to their
+order page. The store never sees card numbers. An order is only marked
+**Paid** after the store re-checks the payment with Rapid Gateway (or gets
+a signed webhook), never just because the customer came back. Unpaid card
+orders don't show up for dispatch in the logistics portal and don't count
+as revenue on the dashboard. A customer whose payment fails can try again
+from their order page or "My orders".
+
+**Test mode (default).** With no API key set, a local page stands in for
+Rapid Gateway at `/pay/test/...` with Approve / Decline buttons, so the whole
+flow can be tried without real money.
+
+**Going live.** Get merchant/sandbox access from Rapid Gateway
+(rapidgateway.pk), then set these environment variables:
+
+| Variable | What it is |
+|---|---|
+| `RAPID_API_KEY` | Your secret API key. Setting it switches the store to live mode. |
+| `RAPID_WEBHOOK_SECRET` | The secret used to sign webhooks. |
+| `PUBLIC_URL` | Your site's address, e.g. `https://autique.pk` (used for the return and webhook links). |
+| `RAPID_API_BASE` | Optional: API address if it isn't `https://api.rapidgateway.pk/v1`. |
+| `RAPID_AMOUNT_MULTIPLIER` | Optional: `100` if Rapid Gateway wants amounts in paisa. |
+| `RAPID_SIGNATURE_HEADER` | Optional: webhook signature header if it isn't `x-rapid-signature`. |
+
+Register `https://your-site/api/payments/webhook` as the webhook URL in the
+Rapid Gateway dashboard.
+
+Rapid Gateway's full API reference is only shared with merchants, so
+`lib/rapidgateway.js` marks each detail that must be checked against it
+(API address, how the key is sent, status names, webhook signature, amount
+units). Check those and run a sandbox payment before taking real orders.
 
 ## Taking it online
 
@@ -117,7 +148,7 @@ this, make sure those two folders are on storage that survives a restart
 
 ## Next steps, when you're ready
 
-- Connect a real payment gateway for the Card option.
+- Add Rapid Gateway keys and verify `lib/rapidgateway.js` against their docs (see Card payments).
 - Move this online (autique.pk, Railway, Cloudflare) — the same code
   runs there with minimal changes.
 - Add product photos (currently every product uses the same simple icon).
