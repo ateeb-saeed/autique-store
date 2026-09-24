@@ -127,6 +127,8 @@ function renderChrome() {
     + (S.bundles.length ? link('/bundles', 'Bundles', `<span class="count">${S.bundles.length}</span>`) : '')
     + (S.settings.saleActive ? link('/shop?sale=1', 'Sale') : '')
     + `<div class="sep"></div>`
+    + link('/track', 'Track your order') + link('/about', 'About us')
+    + `<div class="sep"></div>`
     + (S.user ? link('/account', 'My orders') : link('/login', 'Sign in'))
     + link('/cart', 'Shopping bag', `<span class="count">${cart.count()}</span>`)
     + (S.user ? '<button data-act="logout">Sign out</button>' : '');
@@ -136,8 +138,8 @@ function renderChrome() {
   $('#footer').innerHTML = `<div class="container"><div class="foot">
     <div><a class="foot-logo" href="#/"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:32ch">Premium car care for the discerning driver. Shine worthy of a durbar.</p></div>
     <div><h4>Shop</h4>${S.categories.slice(0, 5).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}</div>
-    <div><h4>Account</h4><a href="#/account">My orders</a><a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}</div>
-    <div><h4>Help</h4><p>Cash on delivery across Pakistan</p><p>Secure card payments by Rapid Gateway</p></div>
+    <div><h4>Account</h4><a href="#/account">My orders</a><a href="#/track">Track your order</a><a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}</div>
+    <div><h4>Help</h4><a href="#/about">About us</a><p>Cash on delivery across Pakistan</p><p>Secure card payments by Rapid Gateway</p></div>
   </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} Autique. All rights reserved.</div></div>`;
 }
 function openMenu(open) {
@@ -324,15 +326,19 @@ const PROVINCES = ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Balochistan', 'Isla
 routes.push([/^\/checkout$/, async () => {
   const lines = cart.lines();
   if (!lines.length) return go('/cart');
+  if (!S.user) return `<div class="container"><div class="auth" style="text-align:center"><h1>Sign in to check out</h1>
+    <p class="sub">An account lets you track every order, see its status and reorder in seconds. Your bag is saved.</p>
+    <div class="box form"><a class="btn btn-primary btn-lg btn-block" href="#/login?next=/checkout">Sign in</a>
+    <a class="btn btn-outline btn-lg btn-block" href="#/register?next=/checkout">Create an account</a></div></div></div>`;
   const t = await totals(lines);
-  const u = S.user || {};
+  const u = S.user;
   const itemRows = `<div style="margin:0 0 16px">${lines.map(l => `<div class="sum-row"><span>${esc(l.name)}${l.type === 'variant' ? ` <span class="muted">(${esc(l.label)})</span>` : ''} <span class="muted">&times; ${l.qty}</span></span><span>${fmt(l.price * l.qty)}</span></div>`).join('')}</div>`;
-  return `<div class="container"><div class="page-head"><h1>Checkout</h1>${!S.user ? '<p>Have an account? <a class="link" href="#/login?next=/checkout">Sign in</a> to track this order later. Or continue as a guest.</p>' : ''}</div>
+  return `<div class="container"><div class="page-head"><h1>Checkout</h1><p>Signed in as ${esc(u.email)}. You can track this order under My orders.</p></div>
   <form class="two" data-form="checkout"><div>
     <div class="box"><h3>Contact and delivery</h3><div class="form">
       <div class="row"><div class="field"><label for="c-name">Full name</label><input class="input" id="c-name" name="name" value="${esc(u.name || '')}" required autocomplete="name"></div>
       <div class="field"><label for="c-phone">Phone</label><input class="input" id="c-phone" name="phone" required autocomplete="tel" placeholder="03xx xxxxxxx"></div></div>
-      <div class="field"><label for="c-email">Email</label><input class="input" id="c-email" type="email" name="email" value="${esc(u.email || '')}" ${S.user ? 'readonly' : ''} required autocomplete="email"></div>
+      <div class="field"><label for="c-email">Email</label><input class="input" id="c-email" type="email" name="email" value="${esc(u.email)}" readonly></div>
       <div class="field"><label for="c-addr">Delivery address</label><input class="input" id="c-addr" name="address" required autocomplete="street-address" placeholder="House, street, area"></div>
       <div class="row"><div class="field"><label for="c-city">City</label><input class="input" id="c-city" name="city" required autocomplete="address-level2"></div>
       <div class="field"><label for="c-prov">Province</label><select id="c-prov" name="province"><option value="">Select</option>${PROVINCES.map(x => `<option>${x}</option>`).join('')}</select></div></div>
@@ -361,7 +367,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
     return `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/login?next=/account">Sign in</a></p></div></div>`;
   }
   const heading = o.paymentMethod === 'card' && o.paymentStatus !== 'paid' ? 'Almost done' : `Thank you, ${esc(o.customerName.split(' ')[0])}`;
-  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. ${S.user ? 'You can find it any time under My orders.' : 'Keep your order number handy in case you need to contact us.'}</p></div>
+  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. You can follow it any time under My orders or Track your order.</p></div>
     <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap"><span class="status">${esc(o.status)}</span><span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div>
     ${paymentNote(o)}
     <div class="box"><h3>Items</h3>${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
@@ -370,6 +376,57 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
       <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
     <div class="box"><h3>Delivering to</h3><p>${esc(o.shipping.name)}<br>${esc(o.shipping.address)}<br>${esc(o.shipping.city)}${o.shipping.province ? ', ' + esc(o.shipping.province) : ''}<br>${esc(o.shipping.phone)}</p></div>
     <p style="margin-top:26px"><a class="btn btn-outline" href="#/shop">Continue shopping</a></p></div>`;
+}]);
+
+// TRACK AN ORDER (order number + account email)
+const STEPS = ['Order placed', 'Confirmed', 'Dispatched', 'Delivered'];
+function trackStep(o) {
+  if (o.status === 'Delivered') return 3;
+  if (o.dispatchedAt || o.status === 'Dispatched' || o.status === 'Shipped') return 2;
+  if (o.status === 'Confirmed' || o.paymentStatus === 'paid') return 1;
+  return 0;
+}
+function trackResultHTML(o) {
+  const cancelled = o.status === 'Cancelled';
+  const step = trackStep(o);
+  return `<div class="box track-result"><div class="order-top"><div><h3 style="margin:0">Order ${esc(o.orderNumber)}</h3><div class="muted small">Placed ${fdate(o.createdAt)}</div></div>
+      <div><span class="status ${cancelled ? 'bad' : ''}">${esc(o.status)}</span> <span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div></div>
+    ${cancelled ? '<div class="note err" style="margin-top:18px">This order was cancelled.</div>' : `<ol class="steps">${STEPS.map((l, i) => `<li class="${i <= step ? 'done' : ''} ${i === step ? 'now' : ''}"><span class="dot"></span><span>${l}</span></li>`).join('')}</ol>`}
+    ${o.dispatchedAt ? `<p class="muted">Dispatched ${fdate(o.dispatchedAt)}${o.courier ? ` with <b>${esc(o.courier)}</b>` : ''}${o.trackingNumber ? `, tracking number <b>${esc(o.trackingNumber)}</b>` : ''}.</p>` : ''}
+    <div style="margin-top:16px">${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
+    <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
+    <p class="small muted" style="margin-top:14px">Delivering to ${esc(o.shipping.city)}${o.shipping.province ? ', ' + esc(o.shipping.province) : ''}.</p></div>`;
+}
+routes.push([/^\/track$/, (m, q) => `<div class="container" style="max-width:720px"><div class="page-head"><h1>Track your order</h1><p>Enter the order number from your confirmation (it looks like AUT-1001) and the email on your account.</p></div>
+  <form class="box form" data-form="track">
+    <div class="row"><div class="field"><label for="t-num">Order number</label><input class="input" id="t-num" name="orderNumber" value="${esc(q.get('n') || '')}" placeholder="AUT-1001" required autocapitalize="characters"></div>
+    <div class="field"><label for="t-email">Email</label><input class="input" id="t-email" type="email" name="email" value="${esc(S.user ? S.user.email : '')}" required autocomplete="email"></div></div>
+    <div id="track-err"></div><button class="btn btn-primary btn-lg" type="submit">Track order</button></form>
+  <div id="track-out" style="margin-top:20px"></div></div>`]);
+
+// ABOUT
+routes.push([/^\/about$/, () => {
+  const html = `<div class="container">
+    <section class="about-hero" aria-label="autique. stands for auto-boutique">
+      <div class="about-logo" id="about-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
+      <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
+      <button class="about-replay" data-act="about-replay">Play again</button>
+    </section>
+    <section class="about-story">
+      <h1>Why we started Autique</h1>
+      <p>It started on a Sunday morning, with a bucket, a borrowed hose and a car that deserved better. We loved our cars, but looking after them felt like a gamble: dusty shelves, faded labels, and no one who could tell you which wax would survive a Lahore summer or which cleaner was safe on leather.</p>
+      <p>So we started asking the people who knew. Detailers, workshop owners, the uncle down the street whose 30-year-old sedan still turned heads. The same few names kept coming up: Gladiator, Sogo, Prato, WTB. Good products existed; they were just hard to find, easy to fake, and sold without care.</p>
+      <p>We wanted a place that treated car care the way a boutique treats fashion: a small, trusted collection, chosen by people who actually use it, and explained in plain words. An <em>auto boutique</em>. Say it fast enough and you get <strong>Autique</strong>.</p>
+      <p>Today we pick every product ourselves, keep our range deliberately small, and deliver across Pakistan with cash on delivery, because trust should come before payment. Whether it's a daily driver or a weekend pride and joy, we want your car to have a shine worthy of a durbar.</p>
+      <ul class="facts">
+        <li>${ICON.check}<span><b>Chosen, not stocked.</b> If we wouldn't use it on our own cars, we don't sell it.</span></li>
+        <li>${ICON.check}<span><b>Genuine only.</b> Sourced from the brands and their trusted suppliers.</span></li>
+        <li>${ICON.check}<span><b>Honest help.</b> Ask us what to use and we'll tell you, even if it's the cheaper bottle.</span></li>
+      </ul>
+      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="#/shop">Shop the collection</a><a class="btn btn-outline btn-lg" href="#/track">Track an order</a></p>
+    </section></div>`;
+  const mount = () => { setTimeout(() => { const l = $('#about-logo'); if (l) l.classList.add('is-split'); }, 700); };
+  return { html, mount };
 }]);
 
 // AUTH + ACCOUNT
@@ -392,6 +449,7 @@ routes.push([/^\/account$/, async () => {
   const { orders } = await api('/api/my-orders');
   const body = orders.length ? orders.map(o => `<div class="order-card"><div class="order-top"><div><b>${esc(o.orderNumber)}</b> <span class="muted small">&middot; ${fdate(o.createdAt)}</span></div><span class="status ${o.status === 'Cancelled' ? 'bad' : ''}">${esc(o.status)}</span></div>
       <div class="order-lines">${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}</div>
+      <a class="link small" style="display:inline-block;margin-top:10px" href="#/track?n=${esc(o.orderNumber)}">Track this order</a>
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
       <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
       ${o.paymentMethod === 'card' && o.paymentStatus !== 'paid' && o.status !== 'Cancelled' ? `<button class="btn btn-primary btn-sm" style="margin-top:12px" data-act="pay-order" data-n="${esc(o.orderNumber)}">Pay now</button>` : ''}</div>`).join('')
@@ -413,12 +471,22 @@ const actions = {
   },
   'pay-order': async el => { el.disabled = true; try { await startPayment(el.dataset.n); } catch (e) { el.disabled = false; throw e; } },
   refresh: () => route(),
+  'about-replay': () => { const l = $('#about-logo'); l.classList.remove('is-split'); setTimeout(() => l.classList.add('is-split'), 900); },
   'cart-remove': async el => { cart.remove(el.dataset.type, el.dataset.key); await route(); },
   logout: async () => { await api('/api/logout', { method: 'POST' }); S.user = null; openMenu(false); toast('Signed out'); go('/'); renderChrome(); }
 };
 const forms = {
   search: form => { const q = $('input', form).value.trim(); $('#searchbar').classList.remove('open'); if (q) go('/shop?q=' + encodeURIComponent(q)); },
   coupon: async form => { couponCode = new FormData(form).get('code').trim(); await route(); },
+  track: async form => {
+    const btn = $('button[type=submit]', form); btn.disabled = true;
+    $('#track-err').innerHTML = ''; $('#track-out').innerHTML = '';
+    try {
+      const { order } = await api('/api/track', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+      $('#track-out').innerHTML = trackResultHTML(order);
+    } catch (e) { $('#track-err').innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+    btn.disabled = false;
+  },
   checkout: async form => {
     const btn = $('button[type=submit]', form), err = $('#co-err');
     err.innerHTML = ''; btn.disabled = true; btn.textContent = 'Placing order...';

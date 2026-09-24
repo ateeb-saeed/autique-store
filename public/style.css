@@ -258,6 +258,38 @@ select, .input, textarea{ width:100%; padding:12px 16px; border-radius:var(--r-s
 .order-top{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; }
 .order-lines{ margin-top:12px; color:var(--ink-2); font-size:0.9rem; }
 
+/* ---------- Track order ---------- */
+.steps{ list-style:none; margin:22px 0 14px; padding:0; display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.steps li{ position:relative; display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; font-size:0.84rem; color:var(--ink-3); }
+.steps li::before{ content:''; position:absolute; top:8px; right:50%; width:100%; height:2px; background:var(--line); z-index:0; }
+.steps li:first-child::before{ display:none; }
+.steps li.done::before{ background:var(--navy); }
+.steps .dot{ position:relative; z-index:1; width:18px; height:18px; border-radius:50%; border:2px solid var(--line); background:var(--white); }
+.steps li.done{ color:var(--ink); font-weight:600; }
+.steps li.done .dot{ border-color:var(--navy); background:var(--navy); }
+.steps li.now .dot{ box-shadow:0 0 0 5px rgba(15,27,43,0.15); }
+
+/* ---------- About: the logo in its original navy + copper, splitting into auto-boutique ---------- */
+.about-hero{ margin-top:22px; border-radius:var(--r-xl); background:var(--navy); color:#c8601c; padding:clamp(56px,10vw,110px) 24px clamp(40px,7vw,70px); text-align:center; overflow:hidden; }
+.about-logo{ font-family:var(--serif); font-weight:700; font-size:clamp(1.9rem, 8vw, 6.2rem); letter-spacing:-0.01em; line-height:1.1; display:inline-flex; align-items:baseline; justify-content:center; white-space:nowrap; }
+.al-grow{ display:inline-grid; grid-template-columns:0fr; transition:grid-template-columns 1.3s cubic-bezier(.65,0,.35,1); }
+.about-logo > span{ flex-shrink:0; }
+.al-grow > span{ overflow:hidden; min-width:0; }
+.al-mid > span{ color:#f0a36b; }
+.about-logo.is-split .al-mid{ grid-template-columns:1fr; }
+.al-dot{ grid-template-columns:1fr; }
+.about-logo.is-split .al-dot{ grid-template-columns:0fr; }
+.about-caption{ margin-top:18px; font-size:0.95rem; letter-spacing:0.18em; text-transform:uppercase; color:rgba(255,255,255,0.7); opacity:0; transform:translateY(8px); transition:opacity .6s .9s, transform .6s .9s; }
+.about-caption span{ color:#fff; font-weight:700; }
+.about-logo.is-split + .about-caption{ opacity:1; transform:none; }
+.about-replay{ margin-top:22px; background:none; border:1.5px solid rgba(255,255,255,0.35); color:#fff; border-radius:999px; padding:8px 18px; font-size:0.84rem; cursor:pointer; }
+.about-replay:hover{ border-color:#fff; }
+.about-story{ max-width:720px; margin:56px auto 0; }
+.about-story h1{ font-size:clamp(1.9rem, 3.6vw, 2.8rem); margin-bottom:22px; }
+.about-story p{ color:var(--ink-2); font-size:1.06rem; line-height:1.75; margin-top:16px; }
+.about-story strong, .about-story b{ color:var(--ink); }
+@media (max-width:720px){ .steps{ font-size:0.76rem; } }
+
 /* ---------- Toast + spinner ---------- */
 .toast-wrap{ position:fixed; z-index:200; left:50%; bottom:calc(28px + env(safe-area-inset-bottom)); transform:translateX(-50%); display:grid; gap:10px; justify-items:center; }
 .toast{ display:flex; align-items:center; gap:16px; background:var(--navy); color:#fff; padding:13px 22px; border-radius:999px; box-shadow:0 18px 40px rgba(15,27,43,0.25); font-size:0.92rem; animation:fadeup .3s both; }

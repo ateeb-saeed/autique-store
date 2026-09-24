@@ -1,6 +1,5 @@
 let categories = [];
 let products = [];
-let currentVariantsProductId = null;
 
 // ---------- Auth ----------
 async function checkAdmin(){
@@ -53,105 +52,258 @@ function loadEverything(){
   loadOrders();
 }
 
-// ---------- Shared: image upload wiring ----------
-// Wires a file input + hidden field + <img> preview inside `container` to upload
-// immediately on file selection, so the form just submits the resulting URL.
-function wireImageUpload(container){
-  const fileInput = container.querySelector('.image-file-input');
-  const hiddenInput = container.querySelector('input[type="hidden"][name="image"]') || container.querySelector('input[name="image"]');
-  const preview = container.querySelector('.image-preview');
-  if(!fileInput) return;
-
-  fileInput.addEventListener('change', async () => {
-    const file = fileInput.files[0];
-    if(!file) return;
-    const formData = new FormData();
-    formData.append('image', file);
-    const res = await fetch('/api/admin/upload-image', { method:'POST', body: formData });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error || 'Upload failed.'); return; }
-    hiddenInput.value = data.url;
-    preview.src = data.url;
-    preview.classList.remove('hidden');
-  });
-}
-
 // ---------- Products & categories ----------
+const money = n => 'Rs. ' + Math.round(Number(n) || 0).toLocaleString('en-US');
+function esc(str){
+  return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function toast(msg, err){
+  const el = document.createElement('div');
+  el.className = 'toast' + (err ? ' err' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+async function api(url, method = 'GET', body){
+  const res = await fetch(url, { method, headers: body ? { 'Content-Type':'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = await res.json(); } catch { /* not json */ }
+  if(!res.ok) throw new Error((data && data.error) || 'Something went wrong.');
+  return data;
+}
+const productStock = p => (p.variants || []).length ? p.variants.reduce((s, v) => s + (v.stock || 0), 0) : (p.stock || 0);
+
 async function loadProducts(){
   const res = await fetch('/api/admin/products');
   const data = await res.json();
   products = data.products;
   categories = data.categories;
-  renderCategorySelect();
+  renderCategoryFilter();
   renderProductsTable();
   renderCategoriesTable();
   renderBundleChecklist();
   renderSaleAppliesTo();
 }
 
-function renderCategorySelect(){
-  const sel = document.getElementById('productCategorySelect');
-  sel.innerHTML = categories.map(c => `<option value="${c.key}">${c.title}</option>`).join('');
-}
-
-function thumbHtml(url){
-  return url ? `<img class="thumb" src="${url}">` : `<div class="thumb-empty"></div>`;
+function renderCategoryFilter(){
+  const sel = document.getElementById('productCatFilter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All categories</option>' + categories.map(c => `<option value="${esc(c.key)}">${esc(c.title)}</option>`).join('');
+  sel.value = cur;
 }
 
 function renderProductsTable(){
+  const q = document.getElementById('productSearch').value.trim().toLowerCase();
+  const cat = document.getElementById('productCatFilter').value;
+  const list = products.filter(p => (!cat || p.categoryKey === cat) && (!q || `${p.name} ${p.sku} ${(p.variants || []).map(v => v.sku).join(' ')}`.toLowerCase().includes(q)));
+  document.getElementById('productsSub').textContent = `${products.length} product${products.length === 1 ? '' : 's'}${list.length !== products.length ? `, ${list.length} shown` : ''}`;
+  const catTitle = key => (categories.find(c => c.key === key) || {}).title || '—';
   const tbody = document.querySelector('#productsTable tbody');
-  tbody.innerHTML = products.map(p => `
-    <tr data-id="${p.id}">
-      <td>${thumbHtml(p.image)}</td>
-      <td><input class="edit-field" data-field="name" value="${escapeAttr(p.name)}" style="width:160px"></td>
-      <td><input class="edit-field" data-field="sku" value="${escapeAttr(p.sku || '')}" style="width:90px"></td>
-      <td>
-        <select class="edit-field" data-field="categoryKey">
-          ${categories.map(c => `<option value="${c.key}" ${c.key===p.categoryKey?'selected':''}>${c.title}</option>`).join('')}
-        </select>
-      </td>
-      <td><input class="edit-field" data-field="price" type="number" value="${p.price}" style="width:75px"></td>
-      <td><input class="edit-field" data-field="active" type="checkbox" ${p.active?'checked':''}></td>
-      <td><input class="edit-field" data-field="desc" value="${escapeAttr(p.desc)}" style="width:180px"></td>
-      <td>
-        <button class="icon-btn save-product">Save</button>
-        <button class="icon-btn manage-variants">Variants (${(p.variants||[]).length})</button>
-        <button class="icon-btn danger delete-product">Delete</button>
-      </td>
-    </tr>
-  `).join('');
-
-  tbody.querySelectorAll('.save-product').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const row = btn.closest('tr');
-      const id = row.dataset.id;
-      const body = {};
-      row.querySelectorAll('.edit-field').forEach(f => {
-        body[f.dataset.field] = f.type === 'checkbox' ? f.checked : f.value;
-      });
-      await fetch(`/api/admin/products/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-      loadProducts();
-    });
-  });
-  tbody.querySelectorAll('.delete-product').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.closest('tr').dataset.id;
-      if(!confirm('Delete this product?')) return;
-      await fetch(`/api/admin/products/${id}`, { method:'DELETE' });
-      loadProducts();
-    });
-  });
-  tbody.querySelectorAll('.manage-variants').forEach(btn => {
-    btn.addEventListener('click', () => openVariantsModal(Number(btn.closest('tr').dataset.id)));
-  });
+  tbody.innerHTML = list.map(p => {
+    const stock = productStock(p), nv = (p.variants || []).length;
+    return `<tr data-id="${p.id}">
+      <td><input type="checkbox" class="sel" value="${p.id}" aria-label="Select ${esc(p.name)}"></td>
+      <td>${p.image ? `<img class="thumb" src="${esc(p.image)}" alt="">` : '<div class="thumb-empty"></div>'}</td>
+      <td><a class="name-link" href="#" data-edit="${p.id}">${esc(p.name)}</a><div class="sub">${nv ? `${nv} variant${nv === 1 ? '' : 's'}` : esc(p.sku || '')}</div></td>
+      <td>${esc(catTitle(p.categoryKey))}</td>
+      <td class="r">${money(p.price)}</td>
+      <td class="r">${stock === 0 ? '<span class="badge off">0</span>' : stock}</td>
+      <td><button class="pill-toggle ${p.active ? 'on' : ''}" data-toggle="${p.id}" aria-pressed="${!!p.active}">${p.active ? 'Visible' : 'Hidden'}</button></td>
+      <td class="r"><div class="row-actions"><button class="btn btn-sm" data-edit="${p.id}">Edit</button><button class="btn btn-danger btn-sm" data-del="${p.id}">Delete</button></div></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="8" class="sub" style="padding:40px;text-align:center">${products.length ? 'No products match.' : 'No products yet. Add your first product, or import many at once.'}</td></tr>`;
+  document.getElementById('selAll').checked = false;
+  updateSelection();
 }
+
+function selectedIds(){ return [...document.querySelectorAll('#productsTable .sel:checked')].map(i => Number(i.value)); }
+function updateSelection(){
+  const n = selectedIds().length;
+  document.getElementById('bulkBar').hidden = n === 0;
+  document.getElementById('selCount').textContent = `${n} selected`;
+}
+
+document.getElementById('productSearch').addEventListener('input', renderProductsTable);
+document.getElementById('productCatFilter').addEventListener('change', renderProductsTable);
+document.getElementById('selAll').addEventListener('change', e => {
+  document.querySelectorAll('#productsTable .sel').forEach(i => { i.checked = e.target.checked; });
+  updateSelection();
+});
+document.querySelector('#productsTable tbody').addEventListener('change', e => { if(e.target.classList.contains('sel')) updateSelection(); });
+document.querySelector('#productsTable tbody').addEventListener('click', async e => {
+  const edit = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]'), tog = e.target.closest('[data-toggle]');
+  try {
+    if(edit){ e.preventDefault(); openProductEditor(Number(edit.dataset.edit)); }
+    if(tog){
+      const p = products.find(x => x.id === Number(tog.dataset.toggle));
+      await api(`/api/admin/products/${p.id}`, 'PUT', { active: !p.active });
+      await loadProducts();
+    }
+    if(del){
+      const p = products.find(x => x.id === Number(del.dataset.del));
+      if(!confirm(`Delete "${p.name}"?\n\nThis removes the product and all its variants. Past orders keep their details.`)) return;
+      await api(`/api/admin/products/${p.id}`, 'DELETE');
+      toast('Product deleted');
+      await loadProducts();
+    }
+  } catch(err){ toast(err.message, true); }
+});
+document.querySelectorAll('#bulkBar [data-bulk]').forEach(btn => btn.addEventListener('click', async () => {
+  const ids = selectedIds(), action = btn.dataset.bulk;
+  if(action === 'delete' && !confirm(`Delete ${ids.length} product(s)? This cannot be undone.`)) return;
+  try { await api('/api/admin/products/bulk-action', 'POST', { ids, action }); toast('Done'); await loadProducts(); }
+  catch(err){ toast(err.message, true); }
+}));
+
+// ---------- Product editor (basics, photos, sizes/colours/stock) ----------
+const editor = document.getElementById('productEditor');
+let editorImages = [];
+
+function showEditor(show){
+  document.getElementById('productsList').classList.toggle('hidden', show);
+  editor.classList.toggle('hidden', !show);
+  window.scrollTo(0, 0);
+}
+
+function variantRowHtml(v){
+  return `<tr data-id="${v.id || ''}">
+    <td><input class="input" data-k="color" value="${esc(v.color)}" aria-label="Colour"></td>
+    <td><input class="input" data-k="size" value="${esc(v.size)}" style="width:90px" aria-label="Size"></td>
+    <td><input class="input" data-k="sku" value="${esc(v.sku)}" aria-label="SKU"></td>
+    <td><input class="input" data-k="price" type="number" min="0" value="${v.priceSet === false || v.price === undefined ? '' : v.price}" style="width:120px" aria-label="Variant price"></td>
+    <td><input class="input" data-k="stock" type="number" min="0" value="${v.stock || 0}" style="width:90px" aria-label="Stock"></td>
+    <td><button class="btn btn-sm" type="button" data-rm-var aria-label="Remove row">&times;</button></td>
+  </tr>`;
+}
+
+function paintImages(){
+  document.getElementById('pf-imgs').innerHTML = editorImages.length
+    ? editorImages.map((u, i) => `<figure><img src="${esc(u)}" alt=""><button type="button" data-rm-img="${i}" aria-label="Remove photo">&times;</button></figure>`).join('')
+    : '<span class="hint" style="margin:0">No photos yet. A placeholder is shown until you add one.</span>';
+}
+
+function toggleSimpleStock(){
+  const hasRows = editor.querySelectorAll('#pf-vars tr').length > 0;
+  document.getElementById('pf-simple').classList.toggle('hidden', hasRows);
+}
+
+function openProductEditor(id){
+  const isNew = !id;
+  const p = isNew
+    ? { name:'', price:'', desc:'', categoryKey: (categories[0] || {}).key, sku:'', stock:0, active:true, images:[], variants:[] }
+    : products.find(x => x.id === id);
+  editorImages = [...(p.images && p.images.length ? p.images : (p.image ? [p.image] : []))];
+  editor.dataset.id = isNew ? '' : p.id;
+  editor.innerHTML = `
+    <div class="panel-head"><h2>${isNew ? 'Add product' : 'Edit product'}</h2><button type="button" class="btn btn-sm" data-cancel>&larr; Back to products</button></div>
+    <p class="panel-sub">${isNew ? 'Fill in the details, add photos and set sizes, colours and stock.' : esc(p.name)}</p>
+    <div class="box"><h3>Basics</h3><div class="form">
+      <div class="field"><label for="pf-name">Product name</label><input class="input" id="pf-name" name="name" value="${esc(p.name)}" required></div>
+      <div class="row">
+        <div class="field"><label for="pf-cat">Category</label><select id="pf-cat" name="categoryKey">${categories.map(c => `<option value="${esc(c.key)}" ${c.key === p.categoryKey ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}</select></div>
+        <div class="field"><label for="pf-price">Price (Rs.)</label><input class="input" id="pf-price" name="price" type="number" min="0" value="${esc(p.price)}" required><div class="hint">The default price. A variant can override it below.</div></div>
+      </div>
+      <div class="field"><label for="pf-desc">Description</label><textarea class="input" id="pf-desc" name="desc" rows="4">${esc(p.desc)}</textarea></div>
+      <div class="row">
+        <div class="field"><label for="pf-sku">SKU</label><input class="input" id="pf-sku" name="sku" value="${esc(p.sku)}"><div class="hint">Leave blank to create one automatically.</div></div>
+        <div class="field" id="pf-simple"><label for="pf-stock">Stock</label><input class="input" id="pf-stock" name="stock" type="number" min="0" value="${p.stock || 0}"><div class="hint">Units on hand. With sizes or colours, set stock per row below instead.</div></div>
+      </div>
+      <label class="check"><input type="checkbox" name="active" ${p.active ? 'checked' : ''}> Visible in the shop</label>
+    </div></div>
+    <div class="box"><h3>Photos</h3><div class="imgs" id="pf-imgs"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <label class="btn btn-sm" style="cursor:pointer">Upload photos<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden id="pf-upload"></label>
+        <input class="input" id="pf-url" placeholder="or paste an image link" style="width:auto;flex:1;min-width:200px;border-radius:999px;padding:9px 16px">
+        <button class="btn btn-sm" type="button" id="pf-add-url">Add link</button>
+      </div>
+      <p class="hint">The first photo is the main one shown in the shop.</p></div>
+    <div class="box"><h3>Sizes, colours and stock</h3>
+      <div class="note">Each row is one buyable option with its own SKU and stock. Use quick add to create every colour and size combination at once. Leave this empty for a product with no options.</div>
+      <div class="form" style="margin-bottom:14px">
+        <div class="row"><div class="field"><label for="qa-colors">Colours</label><input class="input" id="qa-colors" placeholder="Grey, Black"></div><div class="field"><label for="qa-sizes">Sizes</label><input class="input" id="qa-sizes" placeholder="250ml, 500ml"></div></div>
+        <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap"><div class="field" style="width:140px"><label for="qa-stock">Stock each</label><input class="input" id="qa-stock" type="number" min="0" value="5"></div><button class="btn btn-sm" type="button" id="qa-add">Add combinations</button></div>
+      </div>
+      <div style="overflow-x:auto"><table class="vt"><thead><tr><th>Colour</th><th>Size</th><th>SKU</th><th>Price (optional)</th><th>Stock</th><th></th></tr></thead><tbody id="pf-vars">${(p.variants || []).map(variantRowHtml).join('')}</tbody></table></div>
+      <button class="btn btn-sm" type="button" id="pf-add-row" style="margin-top:12px">Add a row</button></div>
+    <p class="error-text" id="pf-error" style="margin-top:14px"></p>
+    <div style="display:flex;gap:10px;margin-top:6px"><button class="btn btn-primary btn-lg" type="submit">${isNew ? 'Create product' : 'Save changes'}</button><button class="btn btn-lg" type="button" data-cancel>Cancel</button></div>`;
+  paintImages();
+  toggleSimpleStock();
+  showEditor(true);
+}
+
+document.getElementById('addProductBtn').addEventListener('click', () => openProductEditor(null));
+
+editor.addEventListener('click', e => {
+  if(e.target.closest('[data-cancel]')){ showEditor(false); return; }
+  const rmImg = e.target.closest('[data-rm-img]');
+  if(rmImg){ editorImages.splice(Number(rmImg.dataset.rmImg), 1); paintImages(); return; }
+  if(e.target.closest('[data-rm-var]')){ e.target.closest('tr').remove(); toggleSimpleStock(); return; }
+  if(e.target.id === 'pf-add-row'){ document.getElementById('pf-vars').insertAdjacentHTML('beforeend', variantRowHtml({ stock:0 })); toggleSimpleStock(); return; }
+  if(e.target.id === 'pf-add-url'){
+    const i = document.getElementById('pf-url');
+    if(i.value.trim()){ editorImages.push(i.value.trim()); i.value = ''; paintImages(); }
+    return;
+  }
+  if(e.target.id === 'qa-add'){
+    const split = id => document.getElementById(id).value.split(',').map(s => s.trim()).filter(Boolean);
+    const colors = split('qa-colors'), sizes = split('qa-sizes'), stock = document.getElementById('qa-stock').value || 0;
+    const rows = [...editor.querySelectorAll('#pf-vars tr')];
+    const have = new Set(rows.map(tr => `${tr.querySelector('[data-k=color]').value.trim()}|${tr.querySelector('[data-k=size]').value.trim()}`));
+    let n = 0;
+    (colors.length ? colors : ['']).forEach(c => (sizes.length ? sizes : ['']).forEach(sz => {
+      if(!c && !sz) return;
+      if(!have.has(`${c}|${sz}`)){ document.getElementById('pf-vars').insertAdjacentHTML('beforeend', variantRowHtml({ color:c, size:sz, stock })); n++; }
+    }));
+    toggleSimpleStock();
+    toast(`${n} option${n === 1 ? '' : 's'} added`);
+  }
+});
+
+editor.addEventListener('change', async e => {
+  if(e.target.id !== 'pf-upload') return;
+  for(const file of e.target.files){
+    if(file.size > 5 * 1024 * 1024){ toast(`${file.name} is larger than 5 MB.`, true); continue; }
+    const fd = new FormData();
+    fd.append('image', file);
+    const res = await fetch('/api/admin/upload-image', { method:'POST', body: fd });
+    const data = await res.json();
+    if(res.ok){ editorImages.push(data.url); paintImages(); } else toast(data.error || 'Upload failed.', true);
+  }
+  e.target.value = '';
+});
+
+editor.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = editor;
+  const variants = [...f.querySelectorAll('#pf-vars tr')].map(tr => {
+    const o = { id: tr.dataset.id ? Number(tr.dataset.id) : undefined };
+    tr.querySelectorAll('input').forEach(i => { o[i.dataset.k] = i.value; });
+    return o;
+  });
+  const body = {
+    name: f.name.value, categoryKey: f.categoryKey.value, price: f.price.value, desc: f.desc.value,
+    sku: f.sku.value, stock: f.stock.value, active: f.active.checked, images: editorImages, variants
+  };
+  const id = f.dataset.id;
+  const btn = f.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    await api(id ? `/api/admin/products/${id}/full` : '/api/admin/products/full', id ? 'PUT' : 'POST', body);
+    toast(id ? 'Product saved' : 'Product created');
+    await loadProducts();
+    showEditor(false);
+  } catch(err){
+    document.getElementById('pf-error').textContent = err.message;
+  }
+  btn.disabled = false;
+});
 
 function renderCategoriesTable(){
   const tbody = document.querySelector('#categoriesTable tbody');
   tbody.innerHTML = categories.map(c => `
     <tr data-key="${c.key}">
-      <td><input class="edit-field" data-field="title" value="${escapeAttr(c.title)}" style="width:200px"></td>
-      <td><input class="edit-field" data-field="tagline" value="${escapeAttr(c.tagline)}" style="width:320px"></td>
+      <td><input class="input edit-field" data-field="title" value="${escapeAttr(c.title)}" style="width:220px"></td>
+      <td><input class="input edit-field" data-field="tagline" value="${escapeAttr(c.tagline)}" style="width:360px"></td>
       <td><button class="icon-btn save-category">Save</button></td>
     </tr>
   `).join('');
@@ -162,30 +314,11 @@ function renderCategoriesTable(){
       const body = {};
       row.querySelectorAll('.edit-field').forEach(f => { body[f.dataset.field] = f.value; });
       await fetch(`/api/admin/categories/${key}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      toast('Category saved');
       loadProducts();
     });
   });
 }
-
-document.getElementById('showAddProduct').addEventListener('click', () => {
-  document.getElementById('addProductForm').classList.toggle('hidden');
-  document.getElementById('bulkImportForm').classList.add('hidden');
-});
-const addProductForm = document.getElementById('addProductForm');
-wireImageUpload(addProductForm);
-addProductForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const body = {
-    name: form.name.value, price: form.price.value, categoryKey: form.categoryKey.value,
-    sku: form.sku.value, desc: form.desc.value, image: form.image.value
-  };
-  await fetch('/api/admin/products', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  form.reset();
-  form.querySelector('.image-preview').classList.add('hidden');
-  form.classList.add('hidden');
-  loadProducts();
-});
 
 document.getElementById('showAddCategory').addEventListener('click', () => document.getElementById('addCategoryForm').classList.toggle('hidden'));
 document.getElementById('addCategoryForm').addEventListener('submit', async (e) => {
@@ -200,7 +333,6 @@ document.getElementById('addCategoryForm').addEventListener('submit', async (e) 
 // ---------- Bulk CSV import ----------
 document.getElementById('showBulkImport').addEventListener('click', () => {
   document.getElementById('bulkImportForm').classList.toggle('hidden');
-  document.getElementById('addProductForm').classList.add('hidden');
 });
 
 function parseCSV(text){
@@ -255,128 +387,76 @@ document.getElementById('runBulkImport').addEventListener('click', async () => {
   loadProducts();
 });
 
-// ---------- Variants modal ----------
-function openVariantsModal(productId){
-  currentVariantsProductId = productId;
-  const product = products.find(p => p.id === productId);
-  document.getElementById('variantsProductName').textContent = product ? product.name : '';
-  document.getElementById('addVariantForm').reset();
-  document.querySelectorAll('#addVariantForm .image-preview').forEach(img => img.classList.add('hidden'));
-  renderVariantsTable();
-  document.getElementById('variantsModal').classList.add('open');
-  document.getElementById('variantsOverlay').classList.add('open');
-}
-function closeVariantsModal(){
-  document.getElementById('variantsModal').classList.remove('open');
-  document.getElementById('variantsOverlay').classList.remove('open');
-  currentVariantsProductId = null;
-}
-document.getElementById('closeVariantsBtn').addEventListener('click', closeVariantsModal);
-document.getElementById('variantsOverlay').addEventListener('click', closeVariantsModal);
-wireImageUpload(document.getElementById('addVariantForm'));
+// ---------- Coupons ----------
+let coupons = [];
+let editingCouponId = null;
+const pad = n => String(n).padStart(2, '0');
+const toLocalInput = iso => { if(!iso) return ''; const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
-function renderVariantsTable(){
-  const product = products.find(p => p.id === currentVariantsProductId);
-  const tbody = document.querySelector('#variantsTable tbody');
-  const variants = product ? (product.variants || []) : [];
-  tbody.innerHTML = variants.map(v => `
-    <tr data-id="${v.id}">
-      <td>${thumbHtml(v.image)}</td>
-      <td>${escapeAttr(v.color) || '&mdash;'}</td>
-      <td>${escapeAttr(v.size) || '&mdash;'}</td>
-      <td>Rs. ${v.price}</td>
-      <td>${escapeAttr(v.sku)}</td>
-      <td><span class="badge ${v.active !== false ? 'on' : 'off'}">${v.active !== false ? 'Active' : 'Off'}</span></td>
-      <td>
-        <button class="icon-btn toggle-variant">${v.active !== false ? 'Deactivate' : 'Activate'}</button>
-        <button class="icon-btn danger delete-variant">Delete</button>
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="7" style="color:var(--copper-dim)">No variants yet — this product sells at its base price.</td></tr>';
-
-  tbody.querySelectorAll('.toggle-variant').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const vid = btn.closest('tr').dataset.id;
-      const variant = variants.find(v => v.id === Number(vid));
-      await fetch(`/api/admin/products/${currentVariantsProductId}/variants/${vid}`, {
-        method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ active: !(variant.active !== false) })
-      });
-      await loadProducts();
-      renderVariantsTable();
-    });
-  });
-  tbody.querySelectorAll('.delete-variant').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if(!confirm('Delete this variant?')) return;
-      const vid = btn.closest('tr').dataset.id;
-      await fetch(`/api/admin/products/${currentVariantsProductId}/variants/${vid}`, { method:'DELETE' });
-      await loadProducts();
-      renderVariantsTable();
-    });
-  });
+async function loadCoupons(){
+  coupons = (await api('/api/admin/coupons')).coupons;
+  const tbody = document.querySelector('#couponsTable tbody');
+  tbody.innerHTML = coupons.map(c => {
+    const expired = c.expiresAt && new Date(c.expiresAt) < new Date();
+    const usedUp = c.usageLimit && (c.usedCount || 0) >= c.usageLimit;
+    const state = !c.active ? ['Off', ''] : expired ? ['Expired', 'off'] : usedUp ? ['Used up', 'off'] : ['Active', 'on'];
+    return `<tr>
+      <td><b>${esc(c.code)}</b></td>
+      <td>${c.type === 'percent' ? `${c.value}%` : money(c.value)}</td>
+      <td>${c.minOrder ? money(c.minOrder) : '—'}</td>
+      <td>${c.usedCount || 0}${c.usageLimit ? ` / ${c.usageLimit}` : ''}</td>
+      <td>${c.expiresAt ? new Date(c.expiresAt).toLocaleString([], { dateStyle:'medium', timeStyle:'short' }) : 'Never'}</td>
+      <td><span class="badge ${state[1]}">${state[0]}</span></td>
+      <td class="r"><div class="row-actions"><button class="btn btn-sm" data-coupon-edit="${c.id}">Edit</button><button class="btn btn-danger btn-sm" data-coupon-del="${c.id}">Delete</button></div></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="sub" style="padding:40px;text-align:center">No coupons yet.</td></tr>';
 }
 
-document.getElementById('addVariantForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const body = { color: form.color.value, size: form.size.value, price: form.price.value, sku: form.sku.value, image: form.image.value };
-  const res = await fetch(`/api/admin/products/${currentVariantsProductId}/variants`, {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
-  });
-  if(res.ok){
-    form.reset();
-    form.querySelector('.image-preview').classList.add('hidden');
-    await loadProducts();
-    renderVariantsTable();
-  } else {
-    const d = await res.json(); alert(d.error);
+function openCouponModal(id){
+  const c = coupons.find(x => x.id === id) || { code:'', type:'percent', value:10, minOrder:0, usageLimit:'', expiresAt:null, active:true };
+  editingCouponId = id || null;
+  const f = document.getElementById('couponForm');
+  document.getElementById('couponModalTitle').textContent = id ? 'Edit coupon' : 'New coupon';
+  f.code.value = c.code; f.type.value = c.type; f.value.value = c.value;
+  f.minOrder.value = c.minOrder || ''; f.usageLimit.value = c.usageLimit || '';
+  f.expiresAt.value = toLocalInput(c.expiresAt); f.active.checked = !!c.active;
+  document.getElementById('couponError').textContent = '';
+  document.getElementById('couponModal').classList.add('open');
+  document.getElementById('couponOverlay').classList.add('open');
+  f.code.focus();
+}
+function closeCouponModal(){
+  document.getElementById('couponModal').classList.remove('open');
+  document.getElementById('couponOverlay').classList.remove('open');
+}
+document.getElementById('newCouponBtn').addEventListener('click', () => openCouponModal(null));
+document.getElementById('couponOverlay').addEventListener('click', closeCouponModal);
+document.querySelectorAll('[data-close-coupon]').forEach(b => b.addEventListener('click', closeCouponModal));
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeCouponModal(); });
+document.querySelector('#couponsTable tbody').addEventListener('click', async e => {
+  const edit = e.target.closest('[data-coupon-edit]'), del = e.target.closest('[data-coupon-del]');
+  if(edit) openCouponModal(Number(edit.dataset.couponEdit));
+  if(del){
+    const c = coupons.find(x => x.id === Number(del.dataset.couponDel));
+    if(!confirm(`Delete coupon ${c.code}? Customers will no longer be able to use it.`)) return;
+    await api(`/api/admin/coupons/${c.id}`, 'DELETE');
+    toast('Coupon deleted');
+    loadCoupons();
   }
 });
-
-// ---------- Coupons ----------
-async function loadCoupons(){
-  const res = await fetch('/api/admin/coupons');
-  const data = await res.json();
-  const tbody = document.querySelector('#couponsTable tbody');
-  tbody.innerHTML = data.coupons.map(c => `
-    <tr data-id="${c.id}">
-      <td>${c.code}</td>
-      <td>${c.type === 'percent' ? c.value + '% off' : 'Rs. ' + c.value + ' off'}</td>
-      <td>${c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : 'Never'}</td>
-      <td><span class="badge ${c.active ? 'on' : 'off'}">${c.active ? 'Active' : 'Off'}</span></td>
-      <td>
-        <button class="icon-btn toggle-coupon">${c.active ? 'Deactivate' : 'Activate'}</button>
-        <button class="icon-btn danger delete-coupon">Delete</button>
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" style="color:var(--copper-dim)">No coupons yet.</td></tr>';
-
-  tbody.querySelectorAll('.toggle-coupon').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.closest('tr').dataset.id;
-      const coupon = data.coupons.find(c => c.id === Number(id));
-      await fetch(`/api/admin/coupons/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ active: !coupon.active }) });
-      loadCoupons();
-    });
-  });
-  tbody.querySelectorAll('.delete-coupon').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.closest('tr').dataset.id;
-      if(!confirm('Delete this coupon?')) return;
-      await fetch(`/api/admin/coupons/${id}`, { method:'DELETE' });
-      loadCoupons();
-    });
-  });
-}
-
-document.getElementById('showAddCoupon').addEventListener('click', () => document.getElementById('addCouponForm').classList.toggle('hidden'));
-document.getElementById('addCouponForm').addEventListener('submit', async (e) => {
+document.getElementById('couponForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const form = e.target;
-  const body = { code: form.code.value, type: form.type.value, value: form.value.value, expiresAt: form.expiresAt.value || null };
-  const res = await fetch('/api/admin/coupons', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  if(res.ok){ form.reset(); form.classList.add('hidden'); loadCoupons(); }
-  else { const d = await res.json(); alert(d.error); }
+  const f = e.target;
+  const body = {
+    code: f.code.value, type: f.type.value, value: f.value.value, minOrder: f.minOrder.value || 0,
+    usageLimit: f.usageLimit.value || null, expiresAt: f.expiresAt.value ? new Date(f.expiresAt.value).toISOString() : null, active: f.active.checked
+  };
+  try {
+    await api(editingCouponId ? `/api/admin/coupons/${editingCouponId}` : '/api/admin/coupons', editingCouponId ? 'PUT' : 'POST', body);
+    closeCouponModal();
+    toast('Coupon saved');
+    loadCoupons();
+  } catch(err){ document.getElementById('couponError').textContent = err.message; }
 });
 
 // ---------- Bundles ----------

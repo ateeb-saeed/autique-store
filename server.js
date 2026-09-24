@@ -150,14 +150,15 @@ app.get('/api/products', (req, res) => {
         const activeVariants = (p.variants || []).filter(v => v.active !== false);
         if (activeVariants.length > 0) {
           const variants = activeVariants.map(v => {
-            const price = effectivePrice({ price: v.price, categoryKey: p.categoryKey }, settings);
+            const base = v.priceSet === false ? p.price : v.price;
+            const price = effectivePrice({ price: base, categoryKey: p.categoryKey }, settings);
             return {
               id: v.id,
               sku: v.sku || '',
               color: v.color || '',
               size: v.size || '',
               price,
-              originalPrice: price !== v.price ? v.price : null,
+              originalPrice: price !== base ? base : null,
               image: v.image || ''
             };
           });
@@ -215,7 +216,7 @@ app.get('/api/bundles', (req, res) => {
 app.post('/api/coupons/validate', (req, res) => {
   const { code, subtotal } = req.body || {};
   const coupon = findCoupon(store.getCoupons(), code);
-  const status = couponStatus(coupon);
+  const status = couponStatus(coupon, Number(subtotal) || 0);
   if (!status.valid) return res.json({ valid: false, reason: status.reason });
   const discount = couponDiscount(coupon, Number(subtotal) || 0);
   res.json({ valid: true, code: coupon.code, discount });
@@ -224,8 +225,8 @@ app.post('/api/coupons/validate', (req, res) => {
 // =========================================================
 // Orders (checkout)
 // =========================================================
-// Signed-in customers and guests can both check out; guests give an email.
-app.post('/api/orders', async (req, res) => {
+// Customers must be signed in to order, so every order can be tracked.
+app.post('/api/orders', requireCustomer, async (req, res) => {
   const { items, variants: variantItems, bundles: bundleItems, couponCode, paymentMethod, shipping } = req.body || {};
   const hasItems = Array.isArray(items) && items.length > 0;
   const hasVariants = Array.isArray(variantItems) && variantItems.length > 0;
@@ -235,9 +236,9 @@ app.post('/api/orders', async (req, res) => {
   if (!shipping || !shipping.name || !shipping.phone || !shipping.address || !shipping.city) {
     return res.status(400).json({ error: 'Please fill in your delivery details.' });
   }
-  const user = req.session.userId ? store.getUsers().find(u => u.id === req.session.userId) : null;
-  const email = user ? user.email : String(shipping.email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
+  const user = store.getUsers().find(u => u.id === req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Sign in required.' });
+  const email = user.email;
 
   const settings = store.getSettings();
   const products = store.getProducts();
@@ -261,7 +262,7 @@ app.post('/api/orders', async (req, res) => {
     const variant = (product.variants || []).find(v => v.id === Number(item.variantId) && v.active !== false);
     if (!variant) continue;
     const qty = Math.max(1, Number(item.qty) || 1);
-    const price = effectivePrice({ price: variant.price, categoryKey: product.categoryKey }, settings);
+    const price = effectivePrice({ price: variant.priceSet === false ? product.price : variant.price, categoryKey: product.categoryKey }, settings);
     const label = [variant.color, variant.size].filter(Boolean).join(' / ');
     subtotal += price * qty;
     lineItems.push({ productId: product.id, variantId: variant.id, name: `${product.name} — ${label}`, price, qty });
@@ -281,7 +282,7 @@ app.post('/api/orders', async (req, res) => {
   let appliedCode = null;
   if (couponCode) {
     const coupon = findCoupon(store.getCoupons(), couponCode);
-    const status = couponStatus(coupon);
+    const status = couponStatus(coupon, subtotal);
     if (status.valid) {
       discount = couponDiscount(coupon, subtotal);
       appliedCode = coupon.code;
@@ -294,7 +295,7 @@ app.post('/api/orders', async (req, res) => {
   const order = {
     id: store.nextId(orders),
     orderNumber: `AUT-${1000 + store.nextId(orders)}`,
-    userId: user ? user.id : null,
+    userId: user.id,
     customerName: shipping.name,
     customerEmail: email,
     items: lineItems,
@@ -315,6 +316,11 @@ app.post('/api/orders', async (req, res) => {
   };
   orders.push(order);
   store.saveOrders(orders);
+  if (appliedCode) {
+    const coupons = store.getCoupons();
+    const used = coupons.find(c => c.code === appliedCode);
+    if (used) { used.usedCount = (used.usedCount || 0) + 1; store.saveCoupons(coupons); }
+  }
 
   if (paymentMethod !== 'card') return res.json({ order });
   try {
@@ -370,9 +376,22 @@ function publicOrder(o) {
     items: o.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
     subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
     paymentMethod: o.paymentMethod, paymentStatus: o.paymentStatus || (o.paymentMethod === 'cod' ? 'unpaid' : 'pending'),
-    status: o.status, createdAt: o.createdAt, shipping: o.shipping
+    status: o.status, createdAt: o.createdAt, shipping: o.shipping,
+    dispatchedAt: o.dispatchedAt || null, courier: o.courier || '', trackingNumber: o.trackingNumber || ''
   };
 }
+
+// Track an order by its number plus the email on the account that placed it.
+app.post('/api/track', (req, res) => {
+  const number = String((req.body && req.body.orderNumber) || '').trim().toUpperCase();
+  const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+  if (!number || !email) return res.status(400).json({ error: 'Enter your order number and email.' });
+  const o = store.getOrders().find(x => x.orderNumber.toUpperCase() === number && String(x.customerEmail || '').toLowerCase() === email);
+  if (!o) return res.status(404).json({ error: 'We could not find an order with that number and email. Check both and try again.' });
+  const p = publicOrder(o);
+  delete p.shipping.email;
+  res.json({ order: p });
+});
 
 function findOrderForViewer(req, orderNumber, token) {
   const o = store.getOrders().find(x => x.orderNumber === orderNumber);
@@ -505,6 +524,90 @@ app.put('/api/admin/products/:id', requireAdmin, (req, res) => {
   if (image !== undefined) product.image = image;
   store.saveProducts(products);
   res.json({ product });
+});
+
+// One save for the whole product editor: basics, photos, variants and stock.
+function applyProductForm(product, body, products) {
+  const name = String(body.name || '').trim();
+  const price = Number(body.price);
+  if (!name) return 'Product name is required.';
+  if (!(price >= 0) || body.price === '' || body.price === undefined) return 'Enter a price.';
+  if (!store.getCategories().some(c => c.key === body.categoryKey)) return 'Choose a category.';
+
+  const log = store.getStockLog();
+  const at = new Date().toISOString();
+  const logChange = (key, label, sku, before, after) => {
+    if (before === after) return;
+    log.push({ id: store.nextId(log), type: 'adjust', key, name: label, sku: sku || '', qty: after - before, balance: after, note: 'Set in admin', by: 'Admin', at });
+  };
+  const int = v => Math.max(0, Math.floor(Number(v) || 0));
+
+  product.name = name;
+  product.price = price;
+  product.categoryKey = body.categoryKey;
+  product.desc = String(body.desc || '');
+  product.active = body.active !== false;
+  product.sku = String(body.sku || '').trim() || product.sku || store.autoSku(name, product.id);
+  const images = (Array.isArray(body.images) ? body.images : []).filter(u => typeof u === 'string' && u.trim()).slice(0, 12);
+  product.images = images;
+  product.image = images[0] || '';
+
+  const old = product.variants || [];
+  const rows = (Array.isArray(body.variants) ? body.variants : []).filter(v => v && (v.id || v.color || v.size || v.sku));
+  const kept = [];
+  rows.forEach((v, i) => {
+    const prev = old.find(x => x.id === Number(v.id));
+    const priceSet = v.price !== '' && v.price !== undefined && v.price !== null;
+    const variant = prev || { id: Math.max(0, ...old.map(x => x.id), ...kept.map(x => x.id)) + 1, active: true, image: '' };
+    variant.color = String(v.color || '').trim();
+    variant.size = String(v.size || '').trim();
+    variant.priceSet = priceSet;
+    variant.price = priceSet ? Math.max(0, Number(v.price)) : price;
+    variant.sku = String(v.sku || '').trim() || `${product.sku}-${i + 1}`;
+    const before = prev ? (prev.stock || 0) : 0;
+    variant.stock = int(v.stock);
+    logChange(`${product.id}:${variant.id}`, `${name} — ${[variant.color, variant.size].filter(Boolean).join(' / ') || 'Standard'}`, variant.sku, before, variant.stock);
+    kept.push(variant);
+  });
+  product.variants = kept;
+  if (!kept.length) {
+    const before = product.stock || 0;
+    product.stock = int(body.stock);
+    logChange(String(product.id), name, product.sku, before, product.stock);
+  }
+  store.saveStockLog(log);
+  return null;
+}
+
+app.post('/api/admin/products/full', requireAdmin, (req, res) => {
+  const products = store.getProducts();
+  const product = { id: store.nextId(products), stock: 0, variants: [] };
+  const error = applyProductForm(product, req.body || {}, products);
+  if (error) return res.status(400).json({ error });
+  products.push(product);
+  store.saveProducts(products);
+  res.json({ product });
+});
+
+app.put('/api/admin/products/:id/full', requireAdmin, (req, res) => {
+  const products = store.getProducts();
+  const product = products.find(p => p.id === Number(req.params.id));
+  if (!product) return res.status(404).json({ error: 'Product not found.' });
+  const error = applyProductForm(product, req.body || {}, products);
+  if (error) return res.status(400).json({ error });
+  store.saveProducts(products);
+  res.json({ product });
+});
+
+app.post('/api/admin/products/bulk-action', requireAdmin, (req, res) => {
+  const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map(Number);
+  const action = req.body && req.body.action;
+  if (!ids.length || !['hide', 'show', 'delete'].includes(action)) return res.status(400).json({ error: 'Choose products and an action.' });
+  let products = store.getProducts();
+  if (action === 'delete') products = products.filter(p => !ids.includes(p.id));
+  else products.forEach(p => { if (ids.includes(p.id)) p.active = action === 'show'; });
+  store.saveProducts(products);
+  res.json({ ok: true });
 });
 
 app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
@@ -642,15 +745,38 @@ app.put('/api/admin/categories/:key', requireAdmin, (req, res) => {
 // =========================================================
 app.get('/api/admin/coupons', requireAdmin, (req, res) => { res.json({ coupons: store.getCoupons() }); });
 
-app.post('/api/admin/coupons', requireAdmin, (req, res) => {
-  const { code, type, value, expiresAt } = req.body || {};
-  if (!code || !type || value === undefined) return res.status(400).json({ error: 'Code, type and value are required.' });
-  if (!['percent', 'fixed'].includes(type)) return res.status(400).json({ error: 'Type must be percent or fixed.' });
-  const coupons = store.getCoupons();
-  if (coupons.some(c => c.code.toUpperCase() === String(code).toUpperCase())) {
-    return res.status(409).json({ error: 'That code already exists.' });
+// Coupon fields: code, type (percent | fixed), value, minOrder, usageLimit, expiresAt, active
+function applyCouponForm(coupon, body, coupons) {
+  if (body.code !== undefined) {
+    const code = String(body.code).trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{2,30}$/.test(code)) return 'Use 2 to 30 letters, numbers, dashes or underscores for the code.';
+    if (coupons.some(c => c.id !== coupon.id && c.code.toUpperCase() === code)) return 'That code already exists.';
+    coupon.code = code;
   }
-  const coupon = { id: store.nextId(coupons), code: code.toUpperCase().trim(), type, value: Number(value), expiresAt: expiresAt || null, active: true };
+  if (body.type !== undefined) {
+    if (!['percent', 'fixed'].includes(body.type)) return 'Type must be percent or fixed.';
+    coupon.type = body.type;
+  }
+  if (body.value !== undefined) {
+    const value = Number(body.value);
+    if (!(value > 0)) return 'Enter a discount amount above 0.';
+    if (coupon.type === 'percent' && value > 100) return 'A percentage discount cannot be more than 100.';
+    coupon.value = value;
+  }
+  if (body.minOrder !== undefined) coupon.minOrder = Math.max(0, Number(body.minOrder) || 0);
+  if (body.usageLimit !== undefined) coupon.usageLimit = Number(body.usageLimit) > 0 ? Math.floor(Number(body.usageLimit)) : null;
+  if (body.expiresAt !== undefined) coupon.expiresAt = body.expiresAt || null;
+  if (body.active !== undefined) coupon.active = !!body.active;
+  return null;
+}
+
+app.post('/api/admin/coupons', requireAdmin, (req, res) => {
+  const body = req.body || {};
+  if (!body.code || body.value === undefined) return res.status(400).json({ error: 'Code and amount are required.' });
+  const coupons = store.getCoupons();
+  const coupon = { id: store.nextId(coupons), type: 'percent', minOrder: 0, usageLimit: null, usedCount: 0, expiresAt: null, active: true };
+  const error = applyCouponForm(coupon, { type: 'percent', ...body }, coupons);
+  if (error) return res.status(400).json({ error });
   coupons.push(coupon);
   store.saveCoupons(coupons);
   res.json({ coupon });
@@ -660,10 +786,8 @@ app.put('/api/admin/coupons/:id', requireAdmin, (req, res) => {
   const coupons = store.getCoupons();
   const coupon = coupons.find(c => c.id === Number(req.params.id));
   if (!coupon) return res.status(404).json({ error: 'Coupon not found.' });
-  const { active, value, expiresAt } = req.body || {};
-  if (active !== undefined) coupon.active = !!active;
-  if (value !== undefined) coupon.value = Number(value);
-  if (expiresAt !== undefined) coupon.expiresAt = expiresAt;
+  const error = applyCouponForm(coupon, req.body || {}, coupons);
+  if (error) return res.status(400).json({ error });
   store.saveCoupons(coupons);
   res.json({ coupon });
 });

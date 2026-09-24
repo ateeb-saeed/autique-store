@@ -50,11 +50,13 @@ change it to something only you know.
   table); order status, revenue by category, payment method, top products,
   fulfilment, customers, stock needing attention, active promotions, and the
   latest orders. Cancelled orders are left out of revenue.
-- **Products** — edit name, price, SKU, description, category, image, or turn
-  a product on/off; add brand-new products with a picture upload.
-- **Variants** — click "Variants" on any product to add color/size options,
-  each with its own SKU, price and picture (e.g. Grey vs Black versions of
-  the same product). Customers pick one from a dropdown on the storefront.
+- **Products** — search and filter by category; select several to hide, show
+  or delete at once. **Add product / Edit** opens one editor with the basics
+  (name, category, price, description, SKU, visibility), photos (upload several
+  or paste links; the first is the main one) and a "Sizes, colours and stock"
+  table. Quick add creates every colour × size combination; each row has its
+  own SKU, optional price (blank = the product price) and stock. Stock set here
+  is recorded as "Admin edit" in the logistics stock history.
 - **Bulk upload (CSV)** — add or update many products at once. Columns:
   `name, category, price, sku, description, active, image`. `category` must
   match an existing category name; if a row's SKU matches an existing
@@ -62,9 +64,9 @@ change it to something only you know.
   simple products only — variants are still added one at a time through the
   Variants button, since each needs its own picture and price.
 - **Categories** — rename a category or its tagline; add new ones.
-- **Discount coupons** — create a code that takes a percentage or a fixed
-  Rs. amount off, with an optional expiry date; deactivate or delete one
-  any time.
+- **Coupons** — a code for a percentage or fixed Rs. amount off, with an
+  optional minimum order, usage limit and expiry date; edit, switch off or
+  delete any time. The table shows how many times each code has been used.
 - **Bundles** — pick two or more products and set a bundle price lower
   than buying them separately. Shows up on the homepage automatically
   while active; toggle it off at the end of the month.
@@ -92,9 +94,13 @@ no prices and can't change products, coupons, sales or settings.
 
 ## What checkout looks like for a customer
 
-1. Add products and/or bundles to the cart.
-2. Optionally enter a discount code in the cart drawer.
-3. Click Checkout (this asks them to sign in first, if they haven't).
+Customers need an account to order, so every order can be tracked. Anyone
+can also use **Track your order** (in the menu) with their order number and
+the email on their account. The **About us** page tells the Autique story.
+
+1. Add products and/or bundles to the bag.
+2. Optionally enter a discount code in the bag.
+3. Click Checkout (this asks them to sign in or create an account first).
 4. Fill in name, phone, address, city, and choose Cash on Delivery or
    Card.
 5. See an order confirmation screen with their order number and total.

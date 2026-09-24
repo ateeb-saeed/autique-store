@@ -208,7 +208,7 @@ async function loadHistory(){
   document.querySelector('#historyTable tbody').innerHTML = log.map(l => `
     <tr>
       <td>${fmtDate(l.at)}<br><span class="sub">${esc(l.by)}</span></td>
-      <td>${l.type === 'restock' ? '<span class="badge on">Restock</span>' : '<span class="badge neutral">Dispatch</span>'}</td>
+      <td>${l.type === 'restock' ? '<span class="badge on">Restock</span>' : l.type === 'adjust' ? '<span class="badge low">Admin edit</span>' : '<span class="badge neutral">Dispatch</span>'}</td>
       <td>${esc(l.name)}</td>
       <td class="mono">${esc(l.sku) || '—'}</td>
       <td class="num">${l.qty > 0 ? '+' : ''}${l.qty}</td>

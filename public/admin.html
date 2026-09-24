@@ -5,16 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Autique Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
 <link rel="icon" href="logo.png">
-<link rel="stylesheet" href="admin.css">
+<link rel="stylesheet" href="admin.css?v=4">
 </head>
 <body>
 
 <!-- Admin login -->
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
-    <h1>Autique Admin</h1>
+    <div class="login-logo"><img src="logo.png" alt="autique."></div>
+    <h1>Admin</h1>
     <p class="login-sub">Sign in to manage the store.</p>
     <form id="loginForm">
       <label>Admin password
@@ -30,12 +31,12 @@
 <!-- Admin dashboard -->
 <div class="admin-shell hidden" id="adminShell">
   <aside class="sidebar">
-    <div class="sidebar-brand">AUTIQUE<span>Admin</span></div>
+    <div class="sidebar-brand"><img src="logo.png" alt="autique."><span>Admin</span></div>
     <nav>
       <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
       <button class="nav-btn" data-tab="products">Products</button>
       <button class="nav-btn" data-tab="categories">Categories</button>
-      <button class="nav-btn" data-tab="coupons">Discount coupons</button>
+      <button class="nav-btn" data-tab="coupons">Coupons</button>
       <button class="nav-btn" data-tab="bundles">Bundles</button>
       <button class="nav-btn" data-tab="sale">Sale</button>
       <button class="nav-btn" data-tab="orders">Orders</button>
@@ -50,7 +51,7 @@
 
   <main class="admin-main">
 
-    <!-- Products -->
+    <!-- Dashboard -->
     <section class="tab-panel" id="tab-dashboard">
       <div class="panel-head">
         <h2>Dashboard</h2>
@@ -124,45 +125,45 @@
       <div class="chart-tooltip hidden" id="chartTooltip" role="status"></div>
     </section>
 
+    <!-- Products -->
     <section class="tab-panel hidden" id="tab-products">
-      <div class="panel-head">
-        <h2>Products</h2>
-        <div class="panel-head-actions">
-          <button class="btn-secondary" id="showBulkImport">Bulk upload (CSV)</button>
-          <button class="btn-primary" id="showAddProduct">Add product</button>
+      <div id="productsList">
+        <div class="panel-head"><h2>Products</h2></div>
+        <p class="panel-sub" id="productsSub"></p>
+        <div class="adm-bar">
+          <input class="input" id="productSearch" type="search" placeholder="Search products" aria-label="Search products">
+          <select id="productCatFilter" aria-label="Filter by category"></select>
+          <span class="sp"></span>
+          <button class="btn btn-sm" id="showBulkImport">Bulk upload</button>
+          <button class="btn btn-primary btn-sm" id="addProductBtn">Add product</button>
+        </div>
+        <div class="adm-bar" id="bulkBar" hidden>
+          <span class="hint" id="selCount" style="margin:0"></span>
+          <button class="btn btn-sm" data-bulk="hide">Hide</button>
+          <button class="btn btn-sm" data-bulk="show">Show</button>
+          <button class="btn btn-danger btn-sm" data-bulk="delete">Delete</button>
+        </div>
+
+        <form class="inline-form-col hidden" id="bulkImportForm">
+          <p class="hint-text">
+            CSV columns: <code>name, category, price, sku, description, active, image</code> —
+            <code>category</code> must match an existing category name, <code>active</code> is
+            yes/no (blank = yes), <code>image</code> is a full image URL (optional). If a row's
+            SKU matches an existing product, that product is updated instead of duplicated.
+          </p>
+          <input type="file" id="bulkCsvFile" accept=".csv">
+          <button type="button" class="btn-primary" id="runBulkImport">Import</button>
+          <div id="bulkImportResult"></div>
+        </form>
+
+        <div class="tbl-wrap">
+          <table class="data-table" id="productsTable">
+            <thead><tr><th><input type="checkbox" id="selAll" aria-label="Select all"></th><th></th><th>Product</th><th>Category</th><th class="r">Price</th><th class="r">Stock</th><th>Visibility</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
-
-      <form class="inline-form-col hidden" id="bulkImportForm">
-        <p class="hint-text">
-          CSV columns: <code>name, category, price, sku, description, active, image</code> —
-          <code>category</code> must match an existing category name, <code>active</code> is
-          yes/no (blank = yes), <code>image</code> is a full image URL (optional). If a row's
-          SKU matches an existing product, that product is updated instead of duplicated.
-        </p>
-        <input type="file" id="bulkCsvFile" accept=".csv">
-        <button type="button" class="btn-primary" id="runBulkImport">Import</button>
-        <div id="bulkImportResult"></div>
-      </form>
-
-      <form class="inline-form-col hidden" id="addProductForm">
-        <input type="text" name="name" placeholder="Product name" required>
-        <input type="number" name="price" placeholder="Price (Rs.)" required min="0">
-        <select name="categoryKey" id="productCategorySelect" required></select>
-        <input type="text" name="sku" placeholder="SKU (leave blank to auto-generate)">
-        <input type="text" name="desc" placeholder="One-line description">
-        <div class="image-upload-row">
-          <input type="file" accept="image/*" class="image-file-input">
-          <input type="hidden" name="image">
-          <img class="image-preview hidden">
-        </div>
-        <button type="submit" class="btn-primary">Save</button>
-      </form>
-
-      <table class="data-table" id="productsTable">
-        <thead><tr><th>Image</th><th>Name</th><th>SKU</th><th>Category</th><th>Price</th><th>Active</th><th>Description</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <form class="form hidden" id="productEditor" novalidate></form>
     </section>
 
     <!-- Categories -->
@@ -185,23 +186,16 @@
     <!-- Coupons -->
     <section class="tab-panel hidden" id="tab-coupons">
       <div class="panel-head">
-        <h2>Discount coupons</h2>
-        <button class="btn-primary" id="showAddCoupon">Add coupon</button>
+        <h2>Coupons</h2>
+        <button class="btn btn-primary btn-sm" id="newCouponBtn">New coupon</button>
       </div>
-      <form class="inline-form hidden" id="addCouponForm">
-        <input type="text" name="code" placeholder="CODE" required style="text-transform:uppercase;">
-        <select name="type">
-          <option value="percent">% off</option>
-          <option value="fixed">Rs. off</option>
-        </select>
-        <input type="number" name="value" placeholder="Value" required min="0">
-        <input type="date" name="expiresAt">
-        <button type="submit" class="btn-primary">Save</button>
-      </form>
-      <table class="data-table" id="couponsTable">
-        <thead><tr><th>Code</th><th>Discount</th><th>Expires</th><th>Active</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <p class="panel-sub">Discount codes customers type in at the bag.</p>
+      <div class="tbl-wrap">
+        <table class="data-table" id="couponsTable">
+          <thead><tr><th>Code</th><th>Discount</th><th>Minimum order</th><th>Used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- Bundles -->
@@ -283,33 +277,29 @@
   </main>
 </div>
 
-<!-- Variants modal -->
-<div class="overlay" id="variantsOverlay"></div>
-<div class="modal" id="variantsModal">
-  <button class="close-btn" id="closeVariantsBtn" aria-label="Close">&times;</button>
-  <h2 class="modal-title">Variants for <span id="variantsProductName"></span></h2>
-  <p class="hint-text">Add a color and/or size option with its own price, SKU and picture — e.g. "Grey" and "Black" versions of the same product.</p>
-
-  <table class="data-table" id="variantsTable">
-    <thead><tr><th>Image</th><th>Color</th><th>Size</th><th>Price</th><th>SKU</th><th>Active</th><th></th></tr></thead>
-    <tbody></tbody>
-  </table>
-
-  <form class="inline-form-col" id="addVariantForm">
-    <input type="text" name="color" placeholder="Color (optional)">
-    <input type="text" name="size" placeholder="Size (optional)">
-    <input type="number" name="price" placeholder="Price (Rs.)" required min="0">
-    <input type="text" name="sku" placeholder="SKU (leave blank to auto-generate)">
-    <div class="image-upload-row">
-      <input type="file" accept="image/*" class="image-file-input">
-      <input type="hidden" name="image">
-      <img class="image-preview hidden">
+<!-- Coupon modal -->
+<div class="overlay" id="couponOverlay"></div>
+<div class="modal" id="couponModal" role="dialog" aria-labelledby="couponModalTitle">
+  <button class="close-btn" data-close-coupon aria-label="Close">&times;</button>
+  <h2 class="modal-title" id="couponModalTitle">New coupon</h2>
+  <form class="form" id="couponForm">
+    <div class="field"><label for="cf-code">Code</label><input class="input" id="cf-code" name="code" required placeholder="WELCOME10" style="text-transform:uppercase"></div>
+    <div class="row">
+      <div class="field"><label for="cf-type">Type</label><select id="cf-type" name="type"><option value="percent">Percentage</option><option value="fixed">Fixed amount (Rs.)</option></select></div>
+      <div class="field"><label for="cf-value">Amount</label><input class="input" id="cf-value" name="value" type="number" min="1" required></div>
     </div>
-    <button type="submit" class="btn-primary">Add variant</button>
+    <div class="row">
+      <div class="field"><label for="cf-min">Minimum order (Rs.)</label><input class="input" id="cf-min" name="minOrder" type="number" min="0"></div>
+      <div class="field"><label for="cf-limit">Usage limit</label><input class="input" id="cf-limit" name="usageLimit" type="number" min="1"><div class="hint">Leave empty for unlimited.</div></div>
+    </div>
+    <div class="field"><label for="cf-exp">Expires</label><input class="input" id="cf-exp" name="expiresAt" type="datetime-local"></div>
+    <label class="check"><input type="checkbox" name="active" checked> Coupon is active</label>
+    <p class="error-text" id="couponError"></p>
+    <div class="actions"><button class="btn" type="button" data-close-coupon>Cancel</button><button class="btn btn-primary" type="submit">Save coupon</button></div>
   </form>
 </div>
 
-<script src="admin.js"></script>
-<script src="admin-dashboard.js"></script>
+<script src="admin.js?v=4"></script>
+<script src="admin-dashboard.js?v=4"></script>
 </body>
 </html>

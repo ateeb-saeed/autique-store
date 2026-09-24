@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Autique Logistics</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
 <link rel="icon" href="logo.png">
-<link rel="stylesheet" href="admin.css">
+<link rel="stylesheet" href="admin.css?v=4">
 </head>
 <body>
 
 <!-- Login -->
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
+    <div class="login-logo"><img src="logo.png" alt="autique."></div>
     <h1>Logistics</h1>
     <p class="login-sub">Sign in to manage stock and dispatch.</p>
     <form id="loginForm">
@@ -30,7 +31,7 @@
 <!-- Portal -->
 <div class="admin-shell hidden" id="portalShell">
   <aside class="sidebar">
-    <div class="sidebar-brand">AUTIQUE<span>Logistics</span></div>
+    <div class="sidebar-brand"><img src="logo.png" alt="autique."><span>Logistics</span></div>
     <nav>
       <button class="nav-btn active" data-tab="stock">Stock</button>
       <button class="nav-btn" data-tab="orders">Orders <span class="nav-count hidden" id="openOrdersCount"></span></button>
@@ -127,6 +128,6 @@
   </form>
 </div>
 
-<script src="logistics.js"></script>
+<script src="logistics.js?v=4"></script>
 </body>
 </html>
