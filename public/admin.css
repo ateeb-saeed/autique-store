@@ -225,3 +225,52 @@ input, select{ font-family:inherit; }
   background:var(--navy); border:1px solid var(--navy-line); color:var(--copper);
   padding:6px 8px; border-radius:3px; font-size:0.82rem;
 }
+
+/* ---------- Logistics portal ---------- */
+.table-wrap{ width:100%; overflow-x:auto; }
+.data-table th.num, .data-table td.num{ text-align:right; white-space:nowrap; }
+.data-table .sub{ color:var(--copper-dim); font-size:0.8rem; }
+.data-table .mono, .mono{ font-family:ui-monospace, Consolas, monospace; font-size:0.8rem; }
+.data-table tr.inactive td{ opacity:0.6; }
+.badge.low{ background:rgba(224,122,54,0.18); color:var(--copper-bright); }
+.badge.neutral{ background:rgba(165,113,79,0.18); color:var(--copper-dim); }
+
+.search-input{
+  background:var(--navy); border:1px solid var(--navy-line); color:var(--copper);
+  padding:9px 12px; border-radius:3px; font-size:0.88rem; font-family:inherit; width:min(260px,100%);
+}
+.search-input:focus{ border-color:var(--copper); outline:none; }
+
+.stat-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:18px; }
+.stat{
+  background:var(--navy-panel-2); border:1px solid var(--navy-line); border-radius:5px;
+  padding:14px 16px; display:flex; flex-direction:column; gap:2px;
+}
+.stat-val{ font-size:1.4rem; font-weight:700; color:var(--copper); font-variant-numeric:tabular-nums; }
+.stat-label{ font-size:0.78rem; color:var(--copper-dim); }
+
+.filter-group{ display:flex; gap:6px; flex-wrap:wrap; }
+.filter-btn{
+  background:none; border:1px solid var(--navy-line); color:var(--copper-dim);
+  padding:7px 14px; border-radius:999px; font-size:0.82rem;
+}
+.filter-btn:hover{ border-color:var(--copper); color:var(--copper); }
+.filter-btn.active{ background:var(--copper); border-color:var(--copper); color:var(--navy); }
+
+.nav-count{
+  display:inline-block; min-width:20px; padding:1px 6px; margin-left:6px;
+  border-radius:999px; background:var(--copper); color:var(--navy);
+  font-size:0.72rem; text-align:center;
+}
+.btn-small{ padding:7px 12px; font-size:0.82rem; white-space:nowrap; }
+.field-label{ display:flex; flex-direction:column; gap:6px; width:100%; font-size:0.85rem; color:var(--copper-dim); }
+
+@media (max-width:760px){
+  .admin-shell{ flex-direction:column; }
+  .sidebar{ width:100%; padding:14px 0; }
+  .sidebar nav{ flex-direction:row; overflow-x:auto; }
+  .nav-btn{ border-left:none; border-bottom:3px solid transparent; white-space:nowrap; }
+  .nav-btn.active{ border-bottom-color:var(--copper); }
+  .sidebar-foot{ flex-direction:row; }
+  .panel-head{ flex-direction:column; align-items:flex-start; gap:12px; }
+}

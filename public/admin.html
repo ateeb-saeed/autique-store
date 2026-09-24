@@ -42,6 +42,7 @@
     </nav>
     <div class="sidebar-foot">
       <a href="index.html">View storefront</a>
+      <a href="logistics.html">Logistics portal</a>
       <button id="adminLogoutBtn">Sign out</button>
     </div>
   </aside>
@@ -192,6 +193,16 @@
         <p class="error-text" id="passwordError"></p>
         <p class="success-text" id="passwordSuccess"></p>
         <button type="submit" class="btn-primary">Change password</button>
+      </form>
+
+      <form class="settings-form" id="logisticsPasswordForm" style="margin-top:24px">
+        <p class="hint-text" style="margin:0">Logistics portal password &mdash; for the stock person at <a href="logistics.html">logistics.html</a>. They can view stock, restock and dispatch orders, but can't see prices or change anything else.</p>
+        <label>New logistics password
+          <input type="password" name="newPassword" required minlength="6" autocomplete="new-password">
+        </label>
+        <p class="error-text" id="logisticsPasswordError"></p>
+        <p class="success-text" id="logisticsPasswordSuccess"></p>
+        <button type="submit" class="btn-primary">Set logistics password</button>
       </form>
     </section>
 

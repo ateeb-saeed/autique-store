@@ -482,7 +482,7 @@ async function loadOrders(){
   const res = await fetch('/api/admin/orders');
   const data = await res.json();
   const tbody = document.querySelector('#ordersTable tbody');
-  const statuses = ['Pending (COD)', 'Pending payment', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+  const statuses = ['Pending (COD)', 'Pending payment', 'Confirmed', 'Dispatched', 'Shipped', 'Delivered', 'Cancelled'];
   tbody.innerHTML = data.orders.map(o => `
     <tr data-id="${o.id}">
       <td>${o.orderNumber}</td>
@@ -495,7 +495,7 @@ async function loadOrders(){
           ${statuses.map(s => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
         </select>
       </td>
-      <td>${new Date(o.createdAt).toLocaleDateString()}</td>
+      <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="7" style="color:var(--copper-dim)">No orders yet.</td></tr>';
 
@@ -522,6 +522,17 @@ document.getElementById('passwordForm').addEventListener('submit', async (e) => 
   document.getElementById('passwordError').textContent = '';
   document.getElementById('passwordSuccess').textContent = 'Password changed.';
   form.reset();
+});
+
+// ---------- Logistics password ----------
+document.getElementById('logisticsPasswordForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const res = await fetch('/api/admin/logistics-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ newPassword: form.newPassword.value }) });
+  const data = await res.json();
+  document.getElementById('logisticsPasswordError').textContent = res.ok ? '' : data.error;
+  document.getElementById('logisticsPasswordSuccess').textContent = res.ok ? 'Logistics password set.' : '';
+  if(res.ok) form.reset();
 });
 
 function escapeAttr(str){

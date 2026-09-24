@@ -40,6 +40,10 @@ function requireAdmin(req, res, next) {
   if (!req.session.isAdmin) return res.status(401).json({ error: 'Admin sign in required.' });
   next();
 }
+function requireLogistics(req, res, next) {
+  if (!req.session.isLogistics && !req.session.isAdmin) return res.status(401).json({ error: 'Logistics sign in required.' });
+  next();
+}
 function requireCustomer(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'Sign in required.' });
   next();
@@ -114,6 +118,15 @@ app.post('/api/admin/change-password', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'New password must be at least 6 characters.' });
   }
   store.saveAdmin({ password_hash: bcrypt.hashSync(newPassword, 10) });
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/logistics-password', requireAdmin, (req, res) => {
+  const { newPassword } = req.body || {};
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'The logistics password must be at least 6 characters.' });
+  }
+  store.saveLogistics({ password_hash: bcrypt.hashSync(newPassword, 10) });
   res.json({ ok: true });
 });
 
@@ -253,7 +266,7 @@ app.post('/api/orders', requireCustomer, (req, res) => {
     if (!bundle) continue;
     const qty = Math.max(1, Number(item.qty) || 1);
     subtotal += bundle.bundlePrice * qty;
-    lineItems.push({ bundleId: bundle.id, name: `${bundle.title} (bundle)`, price: bundle.bundlePrice, qty });
+    lineItems.push({ bundleId: bundle.id, productIds: bundle.productIds, name: `${bundle.title} (bundle)`, price: bundle.bundlePrice, qty });
   }
 
   if (lineItems.length === 0) return res.status(400).json({ error: 'Your cart is empty.' });
@@ -571,7 +584,196 @@ app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
   res.json({ order });
 });
 
+// =========================================================
+// Logistics portal: stock, dispatch, restocking (no pricing)
+// =========================================================
+const CLOSED_STATUSES = ['Dispatched', 'Shipped', 'Delivered', 'Cancelled'];
+
+function variantLabel(v) {
+  return [v.color, v.size].filter(Boolean).join(' / ') || 'Standard';
+}
+
+function stockKey(productId, variantId) {
+  return variantId ? `${productId}:${variantId}` : String(productId);
+}
+
+function stockName(found) {
+  return found.variant ? `${found.product.name} — ${variantLabel(found.variant)}` : found.product.name;
+}
+
+// What an order takes off the shelf, as { key: qty }. Bundles count as each
+// of their products. A product with variants inside a bundle can't be pinned
+// to one variant, so it is left out of the count.
+function orderStockNeeds(order, products, bundles) {
+  const needs = {};
+  const add = (key, qty) => { needs[key] = (needs[key] || 0) + qty; };
+  for (const item of order.items) {
+    if (item.bundleId) {
+      const bundle = bundles.find(b => b.id === item.bundleId);
+      const ids = item.productIds || (bundle ? bundle.productIds : []);
+      ids.forEach(pid => {
+        const p = products.find(x => x.id === pid);
+        if (p && !(p.variants || []).length) add(stockKey(pid), item.qty);
+      });
+    } else {
+      add(stockKey(item.productId, item.variantId), item.qty);
+    }
+  }
+  return needs;
+}
+
+function findStockItem(products, key) {
+  const [pid, vid] = key.split(':').map(Number);
+  const product = products.find(p => p.id === pid);
+  if (!product) return null;
+  if (!vid) return { product, variant: null, target: product };
+  const variant = (product.variants || []).find(v => v.id === vid);
+  return variant ? { product, variant, target: variant } : null;
+}
+
+function isOpenOrder(o) {
+  return !o.dispatchedAt && !CLOSED_STATUSES.includes(o.status);
+}
+
+app.post('/api/logistics/login', (req, res) => {
+  const { password } = req.body || {};
+  const account = store.getLogistics();
+  if (!account || !password || !bcrypt.compareSync(password, account.password_hash)) {
+    return res.status(401).json({ error: 'Incorrect logistics password.' });
+  }
+  req.session.isLogistics = true;
+  res.json({ ok: true });
+});
+
+app.post('/api/logistics/logout', (req, res) => { req.session.isLogistics = false; res.json({ ok: true }); });
+
+app.get('/api/logistics/me', (req, res) => {
+  res.json({ signedIn: !!(req.session.isLogistics || req.session.isAdmin) });
+});
+
+app.get('/api/logistics/stock', requireLogistics, (req, res) => {
+  const products = store.getProducts();
+  const bundles = store.getBundles();
+  const categories = store.getCategories();
+
+  const reserved = {};
+  store.getOrders().filter(isOpenOrder).forEach(o => {
+    Object.entries(orderStockNeeds(o, products, bundles)).forEach(([k, q]) => { reserved[k] = (reserved[k] || 0) + q; });
+  });
+
+  const rows = [];
+  products.forEach(p => {
+    const cat = categories.find(c => c.key === p.categoryKey);
+    const category = cat ? cat.title : p.categoryKey;
+    const variants = p.variants || [];
+    const entries = variants.length
+      ? variants.map(v => ({ key: stockKey(p.id, v.id), variant: variantLabel(v), sku: v.sku, image: v.image || p.image,
+          active: p.active && v.active !== false, onHand: v.stock || 0 }))
+      : [{ key: stockKey(p.id), variant: '', sku: p.sku, image: p.image, active: !!p.active, onHand: p.stock || 0 }];
+    entries.forEach(e => {
+      const r = reserved[e.key] || 0;
+      rows.push({ ...e, name: p.name, category, sku: e.sku || '', image: e.image || '', reserved: r, available: e.onHand - r });
+    });
+  });
+  res.json({ stock: rows });
+});
+
+app.post('/api/logistics/restock', requireLogistics, (req, res) => {
+  const { key, qty, note } = req.body || {};
+  const amount = Math.floor(Number(qty));
+  if (!key || !(amount > 0)) return res.status(400).json({ error: 'Enter how many units arrived (a whole number above 0).' });
+
+  const products = store.getProducts();
+  const found = findStockItem(products, String(key));
+  if (!found) return res.status(404).json({ error: 'Product not found.' });
+  found.target.stock = (found.target.stock || 0) + amount;
+  store.saveProducts(products);
+
+  const log = store.getStockLog();
+  log.push({
+    id: store.nextId(log), type: 'restock', key: String(key), name: stockName(found),
+    sku: found.target.sku || '', qty: amount, balance: found.target.stock,
+    note: note || '', by: req.session.isLogistics ? 'Logistics' : 'Admin', at: new Date().toISOString()
+  });
+  store.saveStockLog(log);
+  res.json({ ok: true, onHand: found.target.stock });
+});
+
+app.get('/api/logistics/orders', requireLogistics, (req, res) => {
+  const products = store.getProducts();
+  const orders = store.getOrders().slice().sort((a, b) => b.id - a.id).map(o => ({
+    id: o.id,
+    orderNumber: o.orderNumber,
+    customerName: o.customerName,
+    phone: o.shipping.phone,
+    address: o.shipping.address,
+    city: o.shipping.city,
+    items: o.items.map(i => {
+      const found = i.bundleId ? null : findStockItem(products, stockKey(i.productId, i.variantId));
+      const contents = i.bundleId
+        ? (i.productIds || []).map(pid => (products.find(p => p.id === pid) || {}).name).filter(Boolean)
+        : [];
+      return { name: i.name, qty: i.qty, sku: found ? (found.target.sku || '') : '', contents };
+    }),
+    paymentMethod: o.paymentMethod,
+    codAmount: o.paymentMethod === 'cod' ? o.total : null,
+    status: o.status,
+    open: isOpenOrder(o),
+    createdAt: o.createdAt,
+    dispatchedAt: o.dispatchedAt || null,
+    courier: o.courier || '',
+    trackingNumber: o.trackingNumber || ''
+  }));
+  res.json({ orders });
+});
+
+app.post('/api/logistics/orders/:id/dispatch', requireLogistics, (req, res) => {
+  const { courier, trackingNumber } = req.body || {};
+  const orders = store.getOrders();
+  const order = orders.find(o => o.id === Number(req.params.id));
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  if (!isOpenOrder(order)) return res.status(400).json({ error: `This order is already ${order.status.toLowerCase()}.` });
+
+  const products = store.getProducts();
+  const needs = orderStockNeeds(order, products, store.getBundles());
+
+  const short = [];
+  Object.entries(needs).forEach(([key, qty]) => {
+    const found = findStockItem(products, key);
+    const have = found ? (found.target.stock || 0) : 0;
+    if (have < qty) short.push(`${found ? stockName(found) : 'Unknown product'}: need ${qty}, have ${have}`);
+  });
+  if (short.length) return res.status(409).json({ error: 'Not enough stock to dispatch this order.', short });
+
+  const log = store.getStockLog();
+  const at = new Date().toISOString();
+  const by = req.session.isLogistics ? 'Logistics' : 'Admin';
+  Object.entries(needs).forEach(([key, qty]) => {
+    const found = findStockItem(products, key);
+    found.target.stock = (found.target.stock || 0) - qty;
+    log.push({
+      id: store.nextId(log), type: 'dispatch', key, name: stockName(found),
+      sku: found.target.sku || '', qty: -qty, balance: found.target.stock,
+      note: order.orderNumber, by, at
+    });
+  });
+  store.saveProducts(products);
+  store.saveStockLog(log);
+
+  order.status = 'Dispatched';
+  order.dispatchedAt = at;
+  order.courier = courier || '';
+  order.trackingNumber = trackingNumber || '';
+  store.saveOrders(orders);
+  res.json({ ok: true });
+});
+
+app.get('/api/logistics/stock-log', requireLogistics, (req, res) => {
+  res.json({ log: store.getStockLog().slice(-300).reverse() });
+});
+
 app.listen(PORT, () => {
   console.log(`Autique store running at http://localhost:${PORT}`);
   console.log(`Admin panel at http://localhost:${PORT}/admin.html`);
+  console.log(`Logistics portal at http://localhost:${PORT}/logistics.html`);
 });

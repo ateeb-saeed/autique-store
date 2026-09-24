@@ -69,6 +69,21 @@ change it to something only you know.
   details, what they bought, the payment method, and a status you can
   update (Pending, Confirmed, Shipped, Delivered, etc).
 
+## Logistics portal
+
+A separate sign-in for the stock person at
+http://localhost:3000/logistics.html (default password `autique-logistics`,
+printed on first run; the admin can change it under Admin settings). It shows
+no prices and can't change products, coupons, sales or settings.
+
+- **Stock** — every product and variant with its SKU, units on hand,
+  units reserved by orders not yet dispatched, and what's available.
+  **Restock** adds units that arrived, with an optional note.
+- **Orders** — delivery details, items with SKUs, and the cash to collect
+  for COD. **Dispatch** records the courier and tracking number and takes
+  the items off the stock count; it's refused if there isn't enough stock.
+- **Stock history** — every restock and dispatch, with the running balance.
+
 ## What checkout looks like for a customer
 
 1. Add products and/or bundles to the cart.
