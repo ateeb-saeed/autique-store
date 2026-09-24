@@ -94,25 +94,136 @@ async function loadProducts(){
     });
   });
 
-  document.querySelectorAll('.add-btn').forEach(btn => {
+  document.querySelectorAll('#categories .add-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = Number(btn.dataset.id);
       const p = allProducts.find(x => x.id === id);
-      if(p.hasVariants){
-        const sel = btn.closest('.card').querySelector('.variant-select');
-        const key = `${id}:${sel.value}`;
-        cartVariants[key] = (cartVariants[key] || 0) + 1;
-      } else {
-        cart[id] = (cart[id] || 0) + 1;
-      }
-      saveCart();
-      renderCart();
-      btn.textContent = 'Added';
-      btn.classList.add('added');
-      setTimeout(() => { btn.textContent = 'Add to cart'; btn.classList.remove('added'); }, 900);
+      const sel = p.hasVariants ? btn.closest('.card').querySelector('.variant-select') : null;
+      addToCart(id, sel ? Number(sel.value) : null, 1);
+      flashAdded(btn, 'Add to cart');
     });
   });
+
+  // Clicking the image or name opens the product detail view
+  document.querySelectorAll('#categories .card').forEach(card => {
+    const open = () => {
+      const sel = card.querySelector('.variant-select');
+      openProduct(Number(card.dataset.productId), sel ? Number(sel.value) : null);
+    };
+    card.querySelector('.card-thumb').addEventListener('click', open);
+    card.querySelector('h3').addEventListener('click', open);
+  });
 }
+
+function addToCart(productId, variantId, qty){
+  if(variantId){
+    const key = `${productId}:${variantId}`;
+    cartVariants[key] = (cartVariants[key] || 0) + qty;
+  } else {
+    cart[productId] = (cart[productId] || 0) + qty;
+  }
+  saveCart();
+  renderCart();
+}
+
+function flashAdded(btn, label){
+  btn.textContent = 'Added';
+  btn.classList.add('added');
+  setTimeout(() => { btn.textContent = label; btn.classList.remove('added'); }, 900);
+}
+
+// ---------- Product detail ----------
+function variantLabel(v){
+  return [v.color, v.size].filter(Boolean).join(' / ') || 'Standard';
+}
+
+function openProduct(productId, selectedVariantId){
+  const p = allProducts.find(x => x.id === productId);
+  if(!p) return;
+  let variantId = p.hasVariants ? (selectedVariantId || p.variants[0].id) : null;
+  let qty = 1;
+
+  const content = document.getElementById('productContent');
+  content.innerHTML = `
+    <div class="pd-thumb"></div>
+    <div class="pd-body">
+      <h2>${p.name}</h2>
+      <div class="pd-sku"></div>
+      <div class="price-row">
+        <div class="price"></div>
+        <div class="price-was"></div>
+      </div>
+      <p class="desc">${p.desc}</p>
+      ${p.hasVariants ? `
+        <h3 class="pd-heading">Variants</h3>
+        <table class="variant-table">
+          <thead><tr><th></th><th>Variant</th><th>SKU</th><th>Price</th></tr></thead>
+          <tbody>
+            ${p.variants.map(v => `
+              <tr class="variant-row" data-variant-id="${v.id}">
+                <td><input type="radio" name="pdVariant" value="${v.id}" aria-label="${variantLabel(v)}"></td>
+                <td>${variantLabel(v)}</td>
+                <td class="sku">${v.sku || '—'}</td>
+                <td>Rs. ${v.price}${v.originalPrice ? ` <span class="price-was">Rs. ${v.originalPrice}</span>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : ''}
+      <div class="pd-actions">
+        <div class="qty-controls">
+          <button class="qty-btn" data-pd="dec" aria-label="Decrease quantity">&minus;</button>
+          <span class="qty-val">1</span>
+          <button class="qty-btn" data-pd="inc" aria-label="Increase quantity">+</button>
+        </div>
+        <button class="add-btn" id="pdAddBtn">Add to cart</button>
+      </div>
+    </div>
+  `;
+
+  function update(){
+    const v = variantId ? p.variants.find(x => x.id === variantId) : null;
+    const image = (v && v.image) || p.image;
+    content.querySelector('.pd-thumb').innerHTML = image ? `<img src="${image}" alt="">` : BOTTLE_ICON;
+    content.querySelector('.pd-sku').textContent = `SKU: ${(v ? v.sku : p.sku) || '—'}`;
+    content.querySelector('.pd-body > .price-row .price').textContent = `Rs. ${v ? v.price : p.price}`;
+    const was = v ? v.originalPrice : p.originalPrice;
+    content.querySelector('.pd-body > .price-row .price-was').textContent = was ? `Rs. ${was}` : '';
+    content.querySelectorAll('.variant-row').forEach(row => {
+      const on = Number(row.dataset.variantId) === variantId;
+      row.classList.toggle('selected', on);
+      row.querySelector('input').checked = on;
+    });
+    content.querySelector('.qty-val').textContent = qty;
+  }
+
+  content.querySelectorAll('.variant-row').forEach(row => {
+    row.addEventListener('click', () => { variantId = Number(row.dataset.variantId); update(); });
+  });
+  content.querySelectorAll('[data-pd]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      qty = btn.dataset.pd === 'inc' ? qty + 1 : Math.max(1, qty - 1);
+      update();
+    });
+  });
+  const addBtn = content.querySelector('#pdAddBtn');
+  addBtn.addEventListener('click', () => {
+    addToCart(p.id, variantId, qty);
+    flashAdded(addBtn, 'Add to cart');
+  });
+
+  update();
+  document.getElementById('productModal').classList.add('open');
+  document.getElementById('productOverlay').classList.add('open');
+}
+
+function closeProduct(){
+  document.getElementById('productModal').classList.remove('open');
+  document.getElementById('productOverlay').classList.remove('open');
+}
+document.getElementById('closeProductBtn').addEventListener('click', closeProduct);
+document.getElementById('productOverlay').addEventListener('click', closeProduct);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeProduct(); });
 
 // ---------- Bundles ----------
 async function loadBundles(){

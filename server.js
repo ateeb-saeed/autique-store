@@ -138,6 +138,7 @@ app.get('/api/products', (req, res) => {
             const price = effectivePrice({ price: v.price, categoryKey: p.categoryKey }, settings);
             return {
               id: v.id,
+              sku: v.sku || '',
               color: v.color || '',
               size: v.size || '',
               price,
@@ -149,6 +150,7 @@ app.get('/api/products', (req, res) => {
           return {
             id: p.id,
             name: p.name,
+            sku: p.sku || '',
             desc: p.desc,
             image: p.image || '',
             hasVariants: true,
@@ -161,6 +163,7 @@ app.get('/api/products', (req, res) => {
         return {
           id: p.id,
           name: p.name,
+          sku: p.sku || '',
           desc: p.desc,
           image: p.image || '',
           hasVariants: false,
