@@ -222,7 +222,8 @@ app.post('/api/coupons/validate', (req, res) => {
 // =========================================================
 // Orders (checkout)
 // =========================================================
-app.post('/api/orders', requireCustomer, (req, res) => {
+// Signed-in customers and guests can both check out; guests give an email.
+app.post('/api/orders', (req, res) => {
   const { items, variants: variantItems, bundles: bundleItems, couponCode, paymentMethod, shipping } = req.body || {};
   const hasItems = Array.isArray(items) && items.length > 0;
   const hasVariants = Array.isArray(variantItems) && variantItems.length > 0;
@@ -232,6 +233,9 @@ app.post('/api/orders', requireCustomer, (req, res) => {
   if (!shipping || !shipping.name || !shipping.phone || !shipping.address || !shipping.city) {
     return res.status(400).json({ error: 'Please fill in your delivery details.' });
   }
+  const user = req.session.userId ? store.getUsers().find(u => u.id === req.session.userId) : null;
+  const email = user ? user.email : String(shipping.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
 
   const settings = store.getSettings();
   const products = store.getProducts();
@@ -284,21 +288,24 @@ app.post('/api/orders', requireCustomer, (req, res) => {
 
   const total = Math.max(0, subtotal - discount);
   const orders = store.getOrders();
-  const user = store.getUsers().find(u => u.id === req.session.userId);
 
   const order = {
     id: store.nextId(orders),
     orderNumber: `AUT-${1000 + store.nextId(orders)}`,
-    userId: user.id,
+    userId: user ? user.id : null,
     customerName: shipping.name,
-    customerEmail: user.email,
+    customerEmail: email,
     items: lineItems,
     subtotal,
     discount,
     couponCode: appliedCode,
     total,
     paymentMethod,
-    shipping,
+    shipping: {
+      name: String(shipping.name), phone: String(shipping.phone), email,
+      address: String(shipping.address), city: String(shipping.city),
+      province: String(shipping.province || ''), notes: String(shipping.notes || '')
+    },
     status: paymentMethod === 'cod' ? 'Pending (COD)' : 'Pending payment',
     createdAt: new Date().toISOString()
   };
@@ -306,6 +313,19 @@ app.post('/api/orders', requireCustomer, (req, res) => {
   store.saveOrders(orders);
 
   res.json({ order });
+});
+
+app.get('/api/my-orders', requireCustomer, (req, res) => {
+  const orders = store.getOrders()
+    .filter(o => o.userId === req.session.userId)
+    .sort((a, b) => b.id - a.id)
+    .map(o => ({
+      orderNumber: o.orderNumber, items: o.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+      subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
+      paymentMethod: o.paymentMethod, status: o.status, createdAt: o.createdAt,
+      courier: o.courier || '', trackingNumber: o.trackingNumber || ''
+    }));
+  res.json({ orders });
 });
 
 // =========================================================
@@ -869,7 +889,7 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
     customers: {
       total: users.length,
       newInRange: users.filter(u => new Date(u.created_at) >= start).length,
-      buyersInRange: new Set(sales.map(o => o.userId)).size
+      buyersInRange: new Set(sales.map(o => o.userId || o.customerEmail)).size
     },
     stock: {
       skus: stock.length,
