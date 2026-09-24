@@ -176,6 +176,10 @@ routes.push([/^\/?$/, () => {
   const onSale = S.products.filter(p => p.originalPrice);
   const brands = ['Gladiator', 'Sogo', 'Prato', 'WTB'];
   return `<div class="container">
+    <section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
+      <div class="about-logo split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
+      <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
+    </section>
     <section class="stage">
       <div>
         <div class="eyebrow">Premium car care</div>
@@ -408,7 +412,7 @@ routes.push([/^\/track$/, (m, q) => `<div class="container" style="max-width:720
 routes.push([/^\/about$/, () => {
   const html = `<div class="container">
     <section class="about-hero" aria-label="autique. stands for auto-boutique">
-      <div class="about-logo" id="about-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
+      <div class="about-logo split-logo" id="about-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
       <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
       <button class="about-replay" data-act="about-replay">Play again</button>
     </section>
@@ -535,6 +539,15 @@ const changes = {
   'pay-pick': () => $$('.pay-opt').forEach(o => o.classList.toggle('on', $('input', o).checked))
 };
 
+// ---------- animated wordmark: open (auto-boutique) at the top, closed (autique.) once scrolling ----------
+let logosReady = false;
+function syncScrollLogos() {
+  if (!logosReady) return;
+  const open = window.scrollY < 24;
+  $$('.scroll-logo').forEach(l => l.classList.toggle('is-split', open));
+}
+window.addEventListener('scroll', syncScrollLogos, { passive: true });
+
 // ---------- router ----------
 let routeId = 0;
 async function route() {
@@ -559,6 +572,7 @@ async function route() {
     renderChrome();
     if (!routeKeepsScroll) window.scrollTo(0, 0);
     routeKeepsScroll = false;
+    setTimeout(syncScrollLogos, 60); // newly rendered wordmarks animate open
     return;
   }
   setApp('<div class="container"><div class="empty" style="padding:120px 0"><h3>Page not found</h3><p style="margin-top:20px"><a class="btn btn-primary" href="#/">Back to the shop</a></p></div></div>');
@@ -593,6 +607,8 @@ window.addEventListener('hashchange', route);
   try { await loadCatalog(); }
   catch (e) { $('#app').innerHTML = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Something went wrong</h3><p>${esc(e.message)}</p></div></div>`; return; }
   cart.save();
-  route();
+  await route();
+  // open the wordmark shortly after the site loads, so the split is seen
+  setTimeout(() => { logosReady = true; syncScrollLogos(); }, 500);
 })();
 })();
