@@ -571,7 +571,7 @@ async function loadOrders(){
       <td>${o.customerName}<br><span style="color:var(--copper-dim);font-size:0.8rem">${o.customerEmail}</span></td>
       <td>${o.items.map(i => `${i.qty}&times; ${i.name}`).join('<br>')}</td>
       <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}</td>
-      <td>${o.paymentMethod === 'cod' ? 'Cash on delivery' : `Online (Rapid Gateway)${o.rgPaymentId ? `<br><span class="mono" style="color:var(--copper-dim);font-size:0.78rem">${o.rgPaymentId}</span>` : ''}`}</td>
+      <td>${o.paymentMethod === 'cod' ? 'Cash on delivery' : `Online (Rapid Gateway)${o.rgPaymentId ? `<br><span class="mono" style="color:var(--copper-dim);font-size:0.78rem">${o.rgPaymentId}</span>` : ''}${o.rgNote ? `<br><span style="color:var(--danger);font-size:0.78rem">${o.rgNote}</span>` : ''}`}</td>
       <td>
         <select class="status-select">
           ${statuses.map(s => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}

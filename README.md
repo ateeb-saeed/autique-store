@@ -110,15 +110,23 @@ the email on their account. The **About us** page tells the Autique story.
 The "Pay online" option at checkout uses Rapid Gateway's hosted page (card,
 JazzCash, Easypaisa). The store never sees card details.
 
-1. The order is saved with status **Awaiting payment** and a payment is created
-   at Rapid Gateway (the order's id is sent as the Idempotency-Key). The
-   customer is sent to Rapid Gateway's checkout page.
-2. Rapid Gateway sends them back to `PUBLIC_BASE_URL/?order=AUT-…`, where a
-   banner says the payment is being confirmed.
-3. Rapid Gateway calls `PUBLIC_BASE_URL/webhooks/rg`, signed with
-   `X-RG-Signature` (hex HMAC-SHA256 of the raw body). `payment.succeeded`
-   sets the order to **Confirmed**; `payment.failed` sets it to **Payment
-   failed**. Unsigned or wrongly signed calls get 401.
+1. The order is saved with status **Awaiting payment**. The store gets an OAuth2
+   token from Rapid Gateway (cached until it expires) and posts the order to
+   `process-transaction` (basket_id = the order number). Rapid Gateway answers
+   with a redirect, and the customer is sent to that checkout page.
+2. Rapid Gateway sends them back to `PUBLIC_BASE_URL/?order=AUT-…` (with
+   `&failed=1` on failure), where a banner says the payment is being confirmed.
+3. Rapid Gateway calls `PUBLIC_BASE_URL/webhooks/rg` (see its payment
+   webhooks guide). The store checks `X-RapidGateway-Signature`: uppercase hex
+   HMAC-SHA256 of `timestamp + "." + raw body` with your webhook salt, using
+   `X-RapidGateway-Timestamp` (rejected if more than 5 minutes off). Bad or
+   stale signatures get 401.
+   - `transaction.completed` → **Confirmed**, only if the paid amount matches the
+     order total; otherwise the order is left alone and flagged in admin.
+   - `transaction.failed` → **Payment failed** (only while still Awaiting payment).
+   - `refund.completed` / `reversal.completed` → noted on the order in admin.
+   - `webhook.test` is acknowledged and ignored. Repeat deliveries of the same
+     `eventId` are ignored.
 
 The status field is the single source of truth: the webhook and the admin's
 status dropdown both write to it. Orders in "Awaiting payment" or "Payment
@@ -126,9 +134,19 @@ failed" don't show for dispatch and don't count as revenue.
 
 | Variable | What it is |
 |---|---|
-| `RG_SECRET_KEY` | Secret API key. If it's missing, the "Pay online" option is hidden. |
-| `RG_WEBHOOK_SECRET` | Secret used to check webhook signatures. |
+| `RG_MERCHANT_ID` | Your Rapid Gateway merchant id. If it's missing, the "Pay online" option is hidden. |
+| `RG_SANDBOX_CLIENT_ID` | OAuth2 client id (default `client`, the shared sandbox credential). |
+| `RG_SANDBOX_CLIENT_SECRET` | OAuth2 client secret (default `secret`). |
+| `RG_WEBHOOK_SECRET` | Webhook signing salt (Dashboard → Settings → Webhooks). |
+| `RG_WEBHOOK_SECRET_PREVIOUS` | Optional: the old salt while you rotate it; both verify until you remove this. |
 | `PUBLIC_BASE_URL` | The store's public address (default `http://localhost:3000`). Used for the return and webhook links. |
+
+Register `https://your-site/webhooks/rg` as the webhook URL in the Rapid
+Gateway dashboard. Sandbox test amounts: an order of exactly **Rs. 100**
+succeeds and **Rs. 200** fails.
+
+The API address is set in `lib/rapidgateway.js` (`RG_BASE`); the checkout
+endpoint is the sandbox one (`/sandbox/process-transaction`) until you go live.
 
 ## Taking it online
 

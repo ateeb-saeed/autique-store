@@ -29,27 +29,52 @@ const upload = multer({ storage: uploadStorage, limits: { fileSize: 5 * 1024 * 1
 
 function publicUser(u) { return { id: u.id, name: u.name, email: u.email }; }
 
-// Rapid Gateway webhook: needs the raw bytes to check the signature, so it is
-// registered before express.json() and parses its own body.
+// Rapid Gateway webhook (see rapidgateway.pk/resources/payment-webhooks-guide).
+// It needs the raw bytes to check the signature, so it is registered before
+// express.json() and parses its own body. Rapid Gateway retries anything that
+// isn't a 2xx within 15 seconds, and may deliver the same event more than once.
 const PAID_OR_LATER = ['Confirmed', 'Dispatched', 'Shipped', 'Delivered'];
 app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) => {
-  if (!gateway.verifySignature(req.body, req.get('X-RG-Signature'))) return res.status(401).json({ error: 'Invalid signature.' });
+  if (!gateway.verifyWebhook(req.body, req.get('X-RapidGateway-Timestamp'), req.get('X-RapidGateway-Signature'))) {
+    return res.status(401).json({ error: 'Invalid signature.' });
+  }
   let event;
   try { event = JSON.parse(req.body.toString('utf8')); } catch { return res.status(400).json({ error: 'Invalid JSON.' }); }
-  const paymentId = event && event.data && event.data.id;
+  const type = event.eventType || req.get('X-RapidGateway-Event');
+  const eventId = event.eventId || req.get('X-RapidGateway-Delivery');
+  if (type === 'webhook.test') return res.status(200).json({ received: true });
+
   const orders = store.getOrders();
-  const order = paymentId ? orders.find(o => o.rgPaymentId === paymentId) : null;
-  if (order) {
-    if (event.type === 'payment.succeeded' && !PAID_OR_LATER.includes(order.status)) {
-      order.status = 'Confirmed';
-      order.paidAt = new Date().toISOString();
-      store.saveOrders(orders);
-    } else if (event.type === 'payment.failed' && order.status === 'Awaiting payment') {
-      // never downgrade an order that is already confirmed or on its way
-      order.status = 'Payment failed';
-      store.saveOrders(orders);
-    }
+  // gatewayTxnRef is Rapid Gateway's id for the payment (saved as rgPaymentId when
+  // it was created); merchantTransactionId is our own reference for the order.
+  const order = orders.find(o =>
+    (event.gatewayTxnRef && o.rgPaymentId === event.gatewayTxnRef) ||
+    (event.merchantTransactionId && (o.orderNumber === event.merchantTransactionId || String(o.id) === String(event.merchantTransactionId))));
+  if (!order) {
+    console.warn(`Rapid Gateway ${type} ${eventId}: no matching order (gatewayTxnRef ${event.gatewayTxnRef}, merchantTransactionId ${event.merchantTransactionId})`);
+    return res.status(200).json({ received: true });
   }
+  order.rgEventIds = order.rgEventIds || [];
+  if (eventId && order.rgEventIds.includes(eventId)) return res.status(200).json({ received: true, duplicate: true });
+
+  if (type === 'transaction.completed') {
+    if (Number(event.amount) !== Math.round(order.total) || (event.currency && event.currency !== 'PKR')) {
+      // don't confirm an order for a payment of a different amount
+      console.warn(`Rapid Gateway ${eventId}: paid ${event.currency} ${event.amount} but ${order.orderNumber} is PKR ${order.total}; left for manual review`);
+      order.rgNote = `Paid ${event.currency || ''} ${event.amount}, order total Rs. ${order.total}: check before dispatch`;
+    } else if (!PAID_OR_LATER.includes(order.status)) {
+      order.status = 'Confirmed';
+      order.paidAt = event.occurredAt || new Date().toISOString();
+    }
+  } else if (type === 'transaction.failed') {
+    // never downgrade an order that is already confirmed or on its way
+    if (order.status === 'Awaiting payment') order.status = 'Payment failed';
+  } else if (type === 'refund.completed' || type === 'reversal.completed') {
+    order.rgNote = `${type === 'refund.completed' ? 'Refunded' : 'Reversed'} by Rapid Gateway (Rs. ${event.amount})`;
+  }
+  if (eventId) order.rgEventIds = [...order.rgEventIds, eventId].slice(-20);
+  if (event.gatewayTxnRef && !order.rgPaymentId) order.rgPaymentId = event.gatewayTxnRef;
+  store.saveOrders(orders);
   res.status(200).json({ received: true });
 });
 
@@ -353,10 +378,8 @@ app.post('/api/orders', requireCustomer, async (req, res) => {
 
   if (paymentMethod !== 'card') return res.json({ order });
   try {
-    const payment = await gateway.createPayment({ orderId: order.id, orderNumber: order.orderNumber, amount: order.total, phone: phoneE164 });
-    const saved = store.getOrders();
-    saved.find(o => o.id === order.id).rgPaymentId = payment.id;
-    store.saveOrders(saved);
+    // rgPaymentId is filled in from the webhook's gatewayTxnRef; basket_id is our orderNumber
+    const payment = await gateway.createPayment({ orderNumber: order.orderNumber, amount: order.total, phone: shipping.phone });
     res.json({ checkoutUrl: payment.checkoutUrl });
   } catch (e) {
     console.error(`Rapid Gateway payment for ${order.orderNumber} could not be created:`, e.message);
