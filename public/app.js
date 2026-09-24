@@ -46,10 +46,8 @@ const orderTokens = {
   set(n, t) { const a = this.all(); a[n] = t; try { localStorage.setItem(TOKENS_KEY, JSON.stringify(a)); } catch { /* private mode */ } }
 };
 const PAY_LABEL = { paid: 'Paid', pending: 'Awaiting payment', failed: 'Payment failed', unpaid: 'Pay on delivery' };
-async function startPayment(orderNumber) {
-  const { checkoutUrl } = await api(`/api/orders/${encodeURIComponent(orderNumber)}/pay`, { method: 'POST', body: { t: orderTokens.get(orderNumber) } });
-  location.href = checkoutUrl;
-}
+// Set when Rapid Gateway sends the customer back to /?order=<orderNumber>
+let returnedOrder = null;
 
 const imgOrIcon = src => src ? `<img src="${esc(src)}" alt="" loading="lazy">` : BOTTLE;
 const variantLabel = v => [v.color, v.size].filter(Boolean).join(' / ') || 'Standard';
@@ -176,6 +174,7 @@ routes.push([/^\/?$/, () => {
   const onSale = S.products.filter(p => p.originalPrice);
   const brands = ['Gladiator', 'Sogo', 'Prato', 'WTB'];
   return `<div class="container">
+    ${returnedOrder ? `<div class="pay-banner" role="status"><p>Thanks! We're confirming payment for order <b>${esc(returnedOrder)}</b>. This page will not update by itself, but you'll see the confirmed status under <a class="link" href="#/account">My orders</a> or <a class="link" href="#/track?n=${esc(returnedOrder)}">Track your order</a> once it's processed.</p><button class="pay-banner-close" data-act="dismiss-pay-banner" aria-label="Dismiss">&times;</button></div>` : ''}
     <section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
       <div class="about-logo split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
       <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
@@ -350,7 +349,7 @@ routes.push([/^\/checkout$/, async () => {
     </div></div>
     <div class="box"><h3>Payment</h3>
       <label class="pay-opt on"><input type="radio" name="paymentMethod" value="cod" checked data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>
-      <label class="pay-opt"><input type="radio" name="paymentMethod" value="card" data-change="pay-pick"><div><b>Debit or credit card</b><span>Visa, Mastercard or UnionPay. You will pay securely on Rapid Gateway's page, then come back here.${S.settings.paymentMode === 'test' ? ' <strong>Test mode:</strong> no real card is charged.' : ''}</span></div></label>
+      ${S.settings.cardPayments ? `<label class="pay-opt"><input type="radio" name="paymentMethod" value="card" data-change="pay-pick"><div><b>Pay online</b><span>Card, JazzCash or Easypaisa, on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
     </div>
   </div>
   <div>${summaryHTML(t, `<div id="co-err"></div><button class="btn btn-primary btn-lg btn-block" type="submit" style="margin-top:16px">Place order</button>${t.code ? `<p class="small muted" style="margin-top:12px;text-align:center">Code ${esc(t.code)} applied.</p>` : ''}`, itemRows)}</div></form></div>`;
@@ -360,8 +359,8 @@ routes.push([/^\/checkout$/, async () => {
 function paymentNote(o) {
   if (o.paymentMethod === 'cod') return `<div class="note">Please keep <b>${fmt(o.total)}</b> ready for the courier.</div>`;
   if (o.paymentStatus === 'paid') return `<div class="note ok">Payment of <b>${fmt(o.total)}</b> received by card. Thank you!</div>`;
-  if (o.paymentStatus === 'failed') return `<div class="note err">Your card payment did not go through, so nothing was charged. <button class="link" data-act="pay-order" data-n="${esc(o.orderNumber)}">Try paying again</button></div>`;
-  return `<div class="note">We are waiting for Rapid Gateway to confirm your payment of <b>${fmt(o.total)}</b>. <button class="link" data-act="refresh">Check again</button> or <button class="link" data-act="pay-order" data-n="${esc(o.orderNumber)}">open the payment page</button>.</div>`;
+  if (o.paymentStatus === 'failed') return `<div class="note err">This payment did not go through. You can place the order again, or choose cash on delivery.</div>`;
+  return `<div class="note">We are waiting for Rapid Gateway to confirm your payment of <b>${fmt(o.total)}</b>. The status here updates once it's confirmed.</div>`;
 }
 routes.push([/^\/order\/([\w-]+)$/, async m => {
   let o;
@@ -456,7 +455,7 @@ routes.push([/^\/account$/, async () => {
       <a class="link small" style="display:inline-block;margin-top:10px" href="#/track?n=${esc(o.orderNumber)}">Track this order</a>
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
       <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
-      ${o.paymentMethod === 'card' && o.paymentStatus !== 'paid' && o.status !== 'Cancelled' ? `<button class="btn btn-primary btn-sm" style="margin-top:12px" data-act="pay-order" data-n="${esc(o.orderNumber)}">Pay now</button>` : ''}</div>`).join('')
+      </div>`).join('')
     : '<div class="empty"><h3>No orders yet</h3><p>When you place an order it will appear here.</p><p style="margin-top:18px"><a class="btn btn-primary" href="#/shop">Start shopping</a></p></div>';
   return `<div class="container"><div class="page-head"><h1>Hi, ${esc(S.user.name.split(' ')[0])}</h1><p>Your orders and account.</p></div>
     <div class="tabs"><span class="pill on">Orders</span><button class="pill" data-act="logout">Sign out</button></div>${body}</div>`;
@@ -473,8 +472,11 @@ const actions = {
     if (q < 1) return;
     cart.set(el.dataset.type, el.dataset.key, q); await route();
   },
-  'pay-order': async el => { el.disabled = true; try { await startPayment(el.dataset.n); } catch (e) { el.disabled = false; throw e; } },
-  refresh: () => route(),
+  'dismiss-pay-banner': el => {
+    returnedOrder = null;
+    el.closest('.pay-banner').remove();
+    history.replaceState(null, '', location.pathname + location.hash);
+  },
   'about-replay': () => { const l = $('#about-logo'); l.classList.remove('is-split'); setTimeout(() => l.classList.add('is-split'), 900); },
   'cart-remove': async el => { cart.remove(el.dataset.type, el.dataset.key); await route(); },
   logout: async () => { await api('/api/logout', { method: 'POST' }); S.user = null; openMenu(false); toast('Signed out'); go('/'); renderChrome(); }
@@ -500,18 +502,16 @@ const forms = {
         ...cart.payload(), couponCode, paymentMethod: f.paymentMethod,
         shipping: { name: f.name, phone: f.phone, email: f.email, address: f.address, city: f.city, province: f.province, notes: f.notes }
       } });
+      if (checkoutUrl) {
+        cart.clear(); couponCode = '';
+        btn.textContent = 'Opening secure payment...';
+        window.location.href = checkoutUrl;
+        return;
+      }
       orderTokens.set(order.orderNumber, order.accessToken);
       cart.clear(); couponCode = '';
-      if (checkoutUrl) { btn.textContent = 'Opening secure payment...'; location.href = checkoutUrl; return; }
       go('/order/' + order.orderNumber);
     } catch (e) {
-      // The order was saved but the card page could not be opened: show it, with a retry
-      if (e.data && e.data.order) {
-        orderTokens.set(e.data.order.orderNumber, e.data.order.accessToken);
-        cart.clear(); couponCode = '';
-        toast(e.message, { err: true, ms: 6000 });
-        return go('/order/' + e.data.order.orderNumber);
-      }
       err.innerHTML = `<div class="note err">${esc(e.message)}</div>`;
       btn.disabled = false; btn.textContent = 'Place order';
     }
@@ -607,6 +607,8 @@ window.addEventListener('hashchange', route);
   try { await loadCatalog(); }
   catch (e) { $('#app').innerHTML = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Something went wrong</h3><p>${esc(e.message)}</p></div></div>`; return; }
   cart.save();
+  const back = new URLSearchParams(location.search).get('order');
+  if (back && /^AUT-\d+$/i.test(back)) returnedOrder = back.toUpperCase();
   await route();
   // open the wordmark shortly after the site loads, so the split is seen
   setTimeout(() => { logosReady = true; syncScrollLogos(); }, 500);

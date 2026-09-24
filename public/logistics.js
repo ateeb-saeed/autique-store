@@ -149,7 +149,7 @@ function renderOrders(){
         ${i.qty}&times; ${esc(i.name)}${i.sku ? ` <span class="mono sub">${esc(i.sku)}</span>` : ''}
         ${i.contents.length ? `<br><span class="sub">&nbsp;&nbsp;contains: ${i.contents.map(esc).join(', ')}</span>` : ''}
       `).join('<br>')}</td>
-      <td>${o.paymentMethod === 'cod' ? `COD<br><span class="sub">Collect Rs. ${o.codAmount}</span>` : `Card<br><span class="sub">${o.paymentStatus === 'paid' ? 'Paid' : o.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment'}</span>`}</td>
+      <td>${o.paymentMethod === 'cod' ? `COD<br><span class="sub">Collect Rs. ${o.codAmount}</span>` : `Online<br><span class="sub">${o.paymentStatus === 'paid' ? 'Paid' : o.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment'}</span>`}</td>
       <td>${esc(o.status)}${o.dispatchedAt ? `<br><span class="sub">${fmtDate(o.dispatchedAt)}${o.courier ? `<br>${esc(o.courier)}` : ''}${o.trackingNumber ? ` &middot; ${esc(o.trackingNumber)}` : ''}</span>` : ''}</td>
       <td>${o.open ? `<button class="btn-primary btn-small" data-dispatch="${o.id}">Dispatch</button>` : ''}</td>
     </tr>

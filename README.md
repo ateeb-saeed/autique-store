@@ -105,40 +105,30 @@ the email on their account. The **About us** page tells the Autique story.
    Card.
 5. See an order confirmation screen with their order number and total.
 
-## Card payments (Rapid Gateway)
+## Online payments (Rapid Gateway)
 
-Card orders go through Rapid Gateway's hosted checkout: the customer places
-the order, is sent to Rapid Gateway's card page, and comes back to their
-order page. The store never sees card numbers. An order is only marked
-**Paid** after the store re-checks the payment with Rapid Gateway (or gets
-a signed webhook), never just because the customer came back. Unpaid card
-orders don't show up for dispatch in the logistics portal and don't count
-as revenue on the dashboard. A customer whose payment fails can try again
-from their order page or "My orders".
+The "Pay online" option at checkout uses Rapid Gateway's hosted page (card,
+JazzCash, Easypaisa). The store never sees card details.
 
-**Test mode (default).** With no API key set, a local page stands in for
-Rapid Gateway at `/pay/test/...` with Approve / Decline buttons, so the whole
-flow can be tried without real money.
+1. The order is saved with status **Awaiting payment** and a payment is created
+   at Rapid Gateway (the order's id is sent as the Idempotency-Key). The
+   customer is sent to Rapid Gateway's checkout page.
+2. Rapid Gateway sends them back to `PUBLIC_BASE_URL/?order=AUT-…`, where a
+   banner says the payment is being confirmed.
+3. Rapid Gateway calls `PUBLIC_BASE_URL/webhooks/rg`, signed with
+   `X-RG-Signature` (hex HMAC-SHA256 of the raw body). `payment.succeeded`
+   sets the order to **Confirmed**; `payment.failed` sets it to **Payment
+   failed**. Unsigned or wrongly signed calls get 401.
 
-**Going live.** Get merchant/sandbox access from Rapid Gateway
-(rapidgateway.pk), then set these environment variables:
+The status field is the single source of truth: the webhook and the admin's
+status dropdown both write to it. Orders in "Awaiting payment" or "Payment
+failed" don't show for dispatch and don't count as revenue.
 
 | Variable | What it is |
 |---|---|
-| `RAPID_API_KEY` | Your secret API key. Setting it switches the store to live mode. |
-| `RAPID_WEBHOOK_SECRET` | The secret used to sign webhooks. |
-| `PUBLIC_URL` | Your site's address, e.g. `https://autique.pk` (used for the return and webhook links). |
-| `RAPID_API_BASE` | Optional: API address if it isn't `https://api.rapidgateway.pk/v1`. |
-| `RAPID_AMOUNT_MULTIPLIER` | Optional: `100` if Rapid Gateway wants amounts in paisa. |
-| `RAPID_SIGNATURE_HEADER` | Optional: webhook signature header if it isn't `x-rapid-signature`. |
-
-Register `https://your-site/api/payments/webhook` as the webhook URL in the
-Rapid Gateway dashboard.
-
-Rapid Gateway's full API reference is only shared with merchants, so
-`lib/rapidgateway.js` marks each detail that must be checked against it
-(API address, how the key is sent, status names, webhook signature, amount
-units). Check those and run a sandbox payment before taking real orders.
+| `RG_SECRET_KEY` | Secret API key. If it's missing, the "Pay online" option is hidden. |
+| `RG_WEBHOOK_SECRET` | Secret used to check webhook signatures. |
+| `PUBLIC_BASE_URL` | The store's public address (default `http://localhost:3000`). Used for the return and webhook links. |
 
 ## Taking it online
 
@@ -154,7 +144,7 @@ this, make sure those two folders are on storage that survives a restart
 
 ## Next steps, when you're ready
 
-- Add Rapid Gateway keys and verify `lib/rapidgateway.js` against their docs (see Card payments).
+- Add the Rapid Gateway keys on Railway (see Online payments).
 - Move this online (autique.pk, Railway, Cloudflare) — the same code
   runs there with minimal changes.
 - Add product photos (currently every product uses the same simple icon).

@@ -564,14 +564,14 @@ async function loadOrders(){
   const res = await fetch('/api/admin/orders');
   const data = await res.json();
   const tbody = document.querySelector('#ordersTable tbody');
-  const statuses = ['Pending (COD)', 'Pending payment', 'Confirmed', 'Dispatched', 'Shipped', 'Delivered', 'Cancelled'];
+  const statuses = ['Pending (COD)', 'Awaiting payment', 'Payment failed', 'Pending payment', 'Confirmed', 'Dispatched', 'Shipped', 'Delivered', 'Cancelled'];
   tbody.innerHTML = data.orders.map(o => `
     <tr data-id="${o.id}">
       <td>${o.orderNumber}</td>
       <td>${o.customerName}<br><span style="color:var(--copper-dim);font-size:0.8rem">${o.customerEmail}</span></td>
       <td>${o.items.map(i => `${i.qty}&times; ${i.name}`).join('<br>')}</td>
       <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}</td>
-      <td>${o.paymentMethod === 'cod' ? 'Cash on delivery' : `Card<br><span style="color:var(--copper-dim);font-size:0.8rem">${o.paymentStatus === 'paid' ? 'Paid' : o.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment'}${o.paymentId ? ` &middot; ${o.paymentId}` : ''}</span>`}</td>
+      <td>${o.paymentMethod === 'cod' ? 'Cash on delivery' : `Online (Rapid Gateway)${o.rgPaymentId ? `<br><span class="mono" style="color:var(--copper-dim);font-size:0.78rem">${o.rgPaymentId}</span>` : ''}`}</td>
       <td>
         <select class="status-select">
           ${statuses.map(s => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
