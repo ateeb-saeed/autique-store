@@ -290,7 +290,7 @@ function renderVariantsTable(){
         <button class="icon-btn danger delete-variant">Delete</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="7" style="color:var(--white-dim)">No variants yet — this product sells at its base price.</td></tr>';
+  `).join('') || '<tr><td colspan="7" style="color:var(--copper-dim)">No variants yet — this product sells at its base price.</td></tr>';
 
   tbody.querySelectorAll('.toggle-variant').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -347,7 +347,7 @@ async function loadCoupons(){
         <button class="icon-btn danger delete-coupon">Delete</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="5" style="color:var(--white-dim)">No coupons yet.</td></tr>';
+  `).join('') || '<tr><td colspan="5" style="color:var(--copper-dim)">No coupons yet.</td></tr>';
 
   tbody.querySelectorAll('.toggle-coupon').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -411,7 +411,7 @@ async function loadBundles(){
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="6" style="color:var(--white-dim)">No bundles yet.</td></tr>';
+  }).join('') || '<tr><td colspan="6" style="color:var(--copper-dim)">No bundles yet.</td></tr>';
 
   tbody.querySelectorAll('.toggle-bundle').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -486,9 +486,9 @@ async function loadOrders(){
   tbody.innerHTML = data.orders.map(o => `
     <tr data-id="${o.id}">
       <td>${o.orderNumber}</td>
-      <td>${o.customerName}<br><span style="color:var(--white-dim);font-size:0.8rem">${o.customerEmail}</span></td>
+      <td>${o.customerName}<br><span style="color:var(--copper-dim);font-size:0.8rem">${o.customerEmail}</span></td>
       <td>${o.items.map(i => `${i.qty}&times; ${i.name}`).join('<br>')}</td>
-      <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--white-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}</td>
+      <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}</td>
       <td>${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card'}</td>
       <td>
         <select class="status-select">
@@ -497,7 +497,7 @@ async function loadOrders(){
       </td>
       <td>${new Date(o.createdAt).toLocaleDateString()}</td>
     </tr>
-  `).join('') || '<tr><td colspan="7" style="color:var(--white-dim)">No orders yet.</td></tr>';
+  `).join('') || '<tr><td colspan="7" style="color:var(--copper-dim)">No orders yet.</td></tr>';
 
   tbody.querySelectorAll('.status-select').forEach(sel => {
     sel.addEventListener('change', async () => {

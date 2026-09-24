@@ -1,5 +1,5 @@
 const BOTTLE_ICON = `
-  <svg viewBox="0 0 48 48" fill="none" stroke="#e8d38c" stroke-width="1.6">
+  <svg viewBox="0 0 48 48" fill="none" stroke="#c8601c" stroke-width="1.6">
     <rect x="17" y="4" width="14" height="7" rx="1.5"/>
     <path d="M19 11 L16 17 L16 41 Q16 44 19 44 H29 Q32 44 32 41 V17 L29 11" />
     <line x1="16" y1="24" x2="32" y2="24" />
@@ -279,7 +279,7 @@ function renderCart(){
   if(appliedCoupon){
     total = Math.max(0, subtotal - appliedCoupon.discount);
     subtotalRowEl.innerHTML = `<span>Subtotal</span><span>Rs. ${subtotal}</span>` +
-      `<br><span style="color:var(--gold-bright)">${appliedCoupon.code}</span><span style="color:var(--gold-bright)">&minus;Rs. ${appliedCoupon.discount}</span>`;
+      `<br><span style="color:var(--copper-bright)">${appliedCoupon.code}</span><span style="color:var(--copper-bright)">&minus;Rs. ${appliedCoupon.discount}</span>`;
   } else {
     subtotalRowEl.innerHTML = '';
   }
