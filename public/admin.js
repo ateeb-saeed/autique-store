@@ -40,10 +40,12 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+    if(btn.dataset.tab === 'dashboard') loadDashboard();
   });
 });
 
 function loadEverything(){
+  loadDashboard();
   loadProducts();
   loadCoupons();
   loadBundles();

@@ -44,6 +44,12 @@ change it to something only you know.
 
 ## What the admin panel can do
 
+- **Dashboard** — the first screen after signing in. Revenue, orders, average
+  order, units sold and discounts for the last 7, 30 or 90 days, compared with
+  the period before; revenue per day (hover a bar for details, or switch to a
+  table); order status, revenue by category, payment method, top products,
+  fulfilment, customers, stock needing attention, active promotions, and the
+  latest orders. Cancelled orders are left out of revenue.
 - **Products** — edit name, price, SKU, description, category, image, or turn
   a product on/off; add brand-new products with a picture upload.
 - **Variants** — click "Variants" on any product to add color/size options,

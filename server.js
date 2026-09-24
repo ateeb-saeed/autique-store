@@ -652,6 +652,10 @@ app.get('/api/logistics/me', (req, res) => {
 });
 
 app.get('/api/logistics/stock', requireLogistics, (req, res) => {
+  res.json({ stock: buildStockRows() });
+});
+
+function buildStockRows() {
   const products = store.getProducts();
   const bundles = store.getBundles();
   const categories = store.getCategories();
@@ -675,8 +679,8 @@ app.get('/api/logistics/stock', requireLogistics, (req, res) => {
       rows.push({ ...e, name: p.name, category, sku: e.sku || '', image: e.image || '', reserved: r, available: e.onHand - r });
     });
   });
-  res.json({ stock: rows });
-});
+  return rows;
+}
 
 app.post('/api/logistics/restock', requireLogistics, (req, res) => {
   const { key, qty, note } = req.body || {};
@@ -770,6 +774,128 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogistics, (req, res) => {
 
 app.get('/api/logistics/stock-log', requireLogistics, (req, res) => {
   res.json({ log: store.getStockLog().slice(-300).reverse() });
+});
+
+// =========================================================
+// Admin: dashboard — one read of everything, aggregated
+// =========================================================
+const LOW_STOCK_LEVEL = 5;
+
+function dayKey(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function orderTotals(list) {
+  const sales = list.filter(o => o.status !== 'Cancelled');
+  const revenue = sales.reduce((s, o) => s + o.total, 0);
+  return {
+    revenue,
+    orders: sales.length,
+    avgOrder: sales.length ? Math.round(revenue / sales.length) : 0,
+    units: sales.reduce((s, o) => s + o.items.reduce((n, i) => n + i.qty, 0), 0),
+    discounts: sales.reduce((s, o) => s + (o.discount || 0), 0)
+  };
+}
+
+app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
+  const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
+  const prevStart = new Date(start.getFullYear(), start.getMonth(), start.getDate() - days);
+
+  const allOrders = store.getOrders();
+  const inRange = allOrders.filter(o => new Date(o.createdAt) >= start);
+  const inPrev = allOrders.filter(o => { const t = new Date(o.createdAt); return t >= prevStart && t < start; });
+  const sales = inRange.filter(o => o.status !== 'Cancelled');
+
+  // Daily revenue and order counts, with empty days filled in
+  const daily = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    daily.push({ date: dayKey(d), revenue: 0, orders: 0 });
+  }
+  const byDay = Object.fromEntries(daily.map(d => [d.date, d]));
+  sales.forEach(o => {
+    const bucket = byDay[dayKey(o.createdAt)];
+    if (bucket) { bucket.revenue += o.total; bucket.orders += 1; }
+  });
+
+  const count = (list, fn) => {
+    const out = {};
+    list.forEach(x => { const k = fn(x); out[k] = (out[k] || 0) + 1; });
+    return Object.entries(out).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  };
+
+  // Product and category performance from order lines (before coupon discounts)
+  const products = store.getProducts();
+  const categories = store.getCategories();
+  const productMap = {};
+  const categoryMap = {};
+  sales.forEach(o => o.items.forEach(i => {
+    const key = i.bundleId ? `b${i.bundleId}` : String(i.productId);
+    const name = i.bundleId ? i.name : ((products.find(p => p.id === i.productId) || {}).name || i.name);
+    const row = productMap[key] || (productMap[key] = { name, units: 0, revenue: 0 });
+    row.units += i.qty;
+    row.revenue += i.price * i.qty;
+
+    let catTitle = 'Bundles';
+    if (!i.bundleId) {
+      const p = products.find(x => x.id === i.productId);
+      const cat = p && categories.find(c => c.key === p.categoryKey);
+      catTitle = cat ? cat.title : 'Other';
+    }
+    categoryMap[catTitle] = (categoryMap[catTitle] || 0) + i.price * i.qty;
+  }));
+
+  const stock = buildStockRows().filter(r => r.active);
+  const users = store.getUsers();
+  const settings = store.getSettings();
+
+  res.json({
+    days,
+    totals: orderTotals(inRange),
+    previous: orderTotals(inPrev),
+    daily,
+    statuses: count(inRange, o => o.status),
+    payments: count(sales, o => (o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card')),
+    topProducts: Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 8),
+    categories: Object.entries(categoryMap).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
+    fulfilment: {
+      toDispatch: allOrders.filter(isOpenOrder).length,
+      dispatched: inRange.filter(o => o.dispatchedAt).length,
+      cancelled: inRange.filter(o => o.status === 'Cancelled').length
+    },
+    customers: {
+      total: users.length,
+      newInRange: users.filter(u => new Date(u.created_at) >= start).length,
+      buyersInRange: new Set(sales.map(o => o.userId)).size
+    },
+    stock: {
+      skus: stock.length,
+      units: stock.reduce((s, r) => s + r.onHand, 0),
+      out: stock.filter(r => r.available <= 0).length,
+      low: stock.filter(r => r.available > 0 && r.available <= LOW_STOCK_LEVEL).length,
+      attention: stock
+        .filter(r => r.available <= LOW_STOCK_LEVEL)
+        .sort((a, b) => b.reserved - a.reserved || a.available - b.available)
+        .slice(0, 8)
+        .map(r => ({ name: r.name, variant: r.variant, sku: r.sku, onHand: r.onHand, reserved: r.reserved, available: r.available }))
+    },
+    catalog: {
+      products: products.length,
+      active: products.filter(p => p.active).length,
+      variants: products.reduce((s, p) => s + (p.variants || []).length, 0)
+    },
+    promotions: {
+      sale: settings.saleActive ? { label: settings.saleLabel, percent: settings.saleDiscountPercent } : null,
+      coupons: store.getCoupons().filter(c => couponStatus(c).valid).length,
+      bundles: store.getBundles().filter(b => b.active).length
+    },
+    recentOrders: allOrders.slice().sort((a, b) => b.id - a.id).slice(0, 6).map(o => ({
+      orderNumber: o.orderNumber, customerName: o.customerName, total: o.total, status: o.status, createdAt: o.createdAt
+    }))
+  });
 });
 
 app.listen(PORT, () => {
