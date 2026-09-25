@@ -378,8 +378,8 @@ app.post('/api/orders', requireCustomer, async (req, res) => {
 
   if (paymentMethod !== 'card') return res.json({ order });
   try {
-    // rgPaymentId is filled in from the webhook's gatewayTxnRef; basket_id is our orderNumber
-    const payment = await gateway.createPayment({ orderNumber: order.orderNumber, amount: order.total, phone: shipping.phone });
+    // rgPaymentId is filled in from the webhook's gatewayTxnRef; BASKET_ID is our orderNumber
+    const payment = await gateway.createPayment({ orderNumber: order.orderNumber, amount: order.total, phone: shipping.phone, email: order.customerEmail });
     res.json({ checkoutUrl: payment.checkoutUrl });
   } catch (e) {
     console.error(`Rapid Gateway payment for ${order.orderNumber} could not be created:`, e.message);
