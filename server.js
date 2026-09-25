@@ -28,7 +28,14 @@ const uploadStorage = multer.diskStorage({
 });
 const upload = multer({ storage: uploadStorage, limits: { fileSize: 5 * 1024 * 1024 } });
 
-function publicUser(u) { return { id: u.id, name: u.name, email: u.email }; }
+function publicUser(u) {
+  return {
+    id: u.id, name: u.name, email: u.email,
+    phone: u.phone || '', address: u.address || '', city: u.city || '', province: u.province || '',
+    hasPassword: !!u.password_hash, googleLinked: !!u.googleSub
+  };
+}
+const PROVINCES = ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Balochistan', 'Islamabad Capital Territory', 'Azad Kashmir', 'Gilgit-Baltistan'];
 
 // Rapid Gateway webhook (see rapidgateway.pk/resources/payment-webhooks-guide).
 // It needs the raw bytes to check the signature, so it is registered before
@@ -159,6 +166,51 @@ app.post('/api/auth/google', async (req, res) => {
   store.saveUsers(users);
   req.session.userId = user.id;
   res.json({ user: publicUser(user), created });
+});
+
+// ---- Customer account settings ----
+app.put('/api/account/profile', requireCustomer, (req, res) => {
+  const users = store.getUsers();
+  const user = users.find(u => u.id === req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Sign in required.' });
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  const email = String(b.email || '').trim().toLowerCase();
+  const phone = String(b.phone || '').trim();
+  const address = String(b.address || '').trim();
+  const city = String(b.city || '').trim();
+  const province = String(b.province || '').trim();
+  if (!name || name.length > 80) return res.status(400).json({ error: 'Enter your name (up to 80 characters).' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (phone && !/^\+?[\d\s-]{10,16}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number, like 0321 1234567.' });
+  if (address.length > 200 || city.length > 60) return res.status(400).json({ error: 'Address or city is too long.' });
+  if (province && !PROVINCES.includes(province)) return res.status(400).json({ error: 'Choose a province from the list.' });
+
+  if (email !== user.email) {
+    if (!user.password_hash) return res.status(400).json({ error: 'Your email comes from your Google account. Set a password first if you want to change it.' });
+    if (!bcrypt.compareSync(String(b.currentPassword || ''), user.password_hash)) return res.status(401).json({ error: 'Enter your current password to change your email.' });
+    if (users.some(u => u.id !== user.id && u.email === email)) return res.status(409).json({ error: 'Another account already uses that email.' });
+    user.email = email;
+  }
+  Object.assign(user, { name, phone, address, city, province });
+  store.saveUsers(users);
+  res.json({ user: publicUser(user) });
+});
+
+app.put('/api/account/password', requireCustomer, (req, res) => {
+  const users = store.getUsers();
+  const user = users.find(u => u.id === req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Sign in required.' });
+  const { currentPassword, newPassword } = req.body || {};
+  if (user.password_hash && !bcrypt.compareSync(String(currentPassword || ''), user.password_hash)) {
+    return res.status(401).json({ error: 'Your current password is incorrect.' });
+  }
+  if (!newPassword || String(newPassword).length < 6 || String(newPassword).length > 200) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  }
+  user.password_hash = bcrypt.hashSync(String(newPassword), 10);
+  store.saveUsers(users);
+  res.json({ user: publicUser(user) });
 });
 
 app.post('/api/logout', (req, res) => { req.session.destroy(() => res.json({ ok: true })); });

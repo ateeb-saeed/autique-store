@@ -340,11 +340,11 @@ routes.push([/^\/checkout$/, async () => {
   <form class="two" data-form="checkout"><div>
     <div class="box"><h3>Contact and delivery</h3><div class="form">
       <div class="row"><div class="field"><label for="c-name">Full name</label><input class="input" id="c-name" name="name" value="${esc(u.name || '')}" required autocomplete="name"></div>
-      <div class="field"><label for="c-phone">Phone</label><input class="input" id="c-phone" name="phone" required autocomplete="tel" placeholder="03xx xxxxxxx"></div></div>
+      <div class="field"><label for="c-phone">Phone</label><input class="input" id="c-phone" name="phone" value="${esc(u.phone)}" required autocomplete="tel" placeholder="03xx xxxxxxx"></div></div>
       <div class="field"><label for="c-email">Email</label><input class="input" id="c-email" type="email" name="email" value="${esc(u.email)}" readonly></div>
-      <div class="field"><label for="c-addr">Delivery address</label><input class="input" id="c-addr" name="address" required autocomplete="street-address" placeholder="House, street, area"></div>
-      <div class="row"><div class="field"><label for="c-city">City</label><input class="input" id="c-city" name="city" required autocomplete="address-level2"></div>
-      <div class="field"><label for="c-prov">Province</label><select id="c-prov" name="province"><option value="">Select</option>${PROVINCES.map(x => `<option>${x}</option>`).join('')}</select></div></div>
+      <div class="field"><label for="c-addr">Delivery address</label><input class="input" id="c-addr" name="address" value="${esc(u.address)}" required autocomplete="street-address" placeholder="House, street, area"></div>
+      <div class="row"><div class="field"><label for="c-city">City</label><input class="input" id="c-city" name="city" value="${esc(u.city)}" required autocomplete="address-level2"></div>
+      <div class="field"><label for="c-prov">Province</label><select id="c-prov" name="province"><option value="">Select</option>${PROVINCES.map(x => `<option ${x === u.province ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
       <div class="field"><label for="c-notes">Order notes (optional)</label><textarea class="input" id="c-notes" name="notes" rows="2" placeholder="Landmark, preferred delivery time..."></textarea></div>
     </div></div>
     <div class="box"><h3>Payment</h3>
@@ -485,8 +485,47 @@ const authPage = (mode, next) => {
 routes.push([/^\/login$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('login', q.get('next') || '/account')]);
 routes.push([/^\/register$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('register', q.get('next') || '/account')]);
 
-routes.push([/^\/account$/, async () => {
+function accountTabs(tab) {
+  const t = (key, label) => `<a class="pill ${tab === key ? 'on' : ''}" href="#/account${key === 'orders' ? '' : '?tab=' + key}">${label}</a>`;
+  return `<div class="tabs">${t('orders', 'Orders')}${t('profile', 'Profile')}${t('password', 'Password')}<button class="pill" data-act="logout">Sign out</button></div>`;
+}
+function profileHTML(u) {
+  const googleOnly = !u.hasPassword;
+  return `<form class="box form account-form" data-form="profile">
+    <div id="account-msg"></div>
+    <h3>Your details</h3>
+    <div class="row"><div class="field"><label for="p-name">Full name</label><input class="input" id="p-name" name="name" value="${esc(u.name)}" required maxlength="80" autocomplete="name"></div>
+    <div class="field"><label for="p-phone">Phone</label><input class="input" id="p-phone" name="phone" value="${esc(u.phone)}" autocomplete="tel" placeholder="03xx xxxxxxx"></div></div>
+    <div class="field"><label for="p-email">Email</label><input class="input" id="p-email" type="email" name="email" value="${esc(u.email)}" required autocomplete="email" ${googleOnly ? 'readonly' : ''}>
+      <div class="hint">${googleOnly ? 'Your email comes from your Google account. Set a password to be able to change it.' : 'Orders you already placed stay linked to the email they were placed with, for tracking.'}</div></div>
+    ${googleOnly ? '' : `<div class="field" id="p-current-wrap" hidden><label for="p-current">Current password</label><input class="input" id="p-current" type="password" name="currentPassword" autocomplete="current-password"><div class="hint">Needed to change your email.</div></div>`}
+    <h3 style="margin-top:8px">Saved delivery address</h3>
+    <p class="hint" style="margin-top:-10px">Filled in for you at checkout.</p>
+    <div class="field"><label for="p-addr">Address</label><input class="input" id="p-addr" name="address" value="${esc(u.address)}" maxlength="200" autocomplete="street-address" placeholder="House, street, area"></div>
+    <div class="row"><div class="field"><label for="p-city">City</label><input class="input" id="p-city" name="city" value="${esc(u.city)}" maxlength="60" autocomplete="address-level2"></div>
+    <div class="field"><label for="p-prov">Province</label><select id="p-prov" name="province"><option value="">Select</option>${PROVINCES.map(x => `<option ${x === u.province ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
+    <div><button class="btn btn-primary" type="submit">Save changes</button></div>
+  </form>`;
+}
+function passwordHTML(u) {
+  return `<form class="box form account-form" data-form="password">
+    <div id="account-msg"></div>
+    <h3>${u.hasPassword ? 'Change password' : 'Set a password'}</h3>
+    ${u.hasPassword
+      ? `<div class="field"><label for="w-cur">Current password</label><input class="input" id="w-cur" type="password" name="currentPassword" required autocomplete="current-password"></div>`
+      : '<p class="muted">You sign in with Google. Set a password to also be able to sign in with your email.</p>'}
+    <div class="field"><label for="w-new">New password</label><input class="input" id="w-new" type="password" name="newPassword" required minlength="6" autocomplete="new-password"><div class="hint">At least 6 characters.</div></div>
+    <div class="field"><label for="w-new2">Confirm new password</label><input class="input" id="w-new2" type="password" name="confirmPassword" required minlength="6" autocomplete="new-password"></div>
+    <div><button class="btn btn-primary" type="submit">${u.hasPassword ? 'Change password' : 'Set password'}</button></div>
+  </form>`;
+}
+
+routes.push([/^\/account$/, async (m, q) => {
   if (!S.user) return go('/login?next=/account');
+  const tab = ['profile', 'password'].includes(q.get('tab')) ? q.get('tab') : 'orders';
+  const head = `<div class="container"><div class="page-head"><h1>Hi, ${esc(S.user.name.split(' ')[0])}</h1><p>Your orders and account settings.</p></div>${accountTabs(tab)}`;
+  if (tab === 'profile') return `${head}${profileHTML(S.user)}</div>`;
+  if (tab === 'password') return `${head}${passwordHTML(S.user)}</div>`;
   const { orders } = await api('/api/my-orders');
   const body = orders.length ? orders.map(o => `<div class="order-card"><div class="order-top"><div><b>${esc(o.orderNumber)}</b> <span class="muted small">&middot; ${fdate(o.createdAt)}</span></div><span class="status ${o.status === 'Cancelled' ? 'bad' : ''}">${esc(o.status)}</span></div>
       <div class="order-lines">${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}</div>
@@ -496,8 +535,7 @@ routes.push([/^\/account$/, async () => {
       <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
       </div>`).join('')
     : '<div class="empty"><h3>No orders yet</h3><p>When you place an order it will appear here.</p><p style="margin-top:18px"><a class="btn btn-primary" href="#/shop">Start shopping</a></p></div>';
-  return `<div class="container"><div class="page-head"><h1>Hi, ${esc(S.user.name.split(' ')[0])}</h1><p>Your orders and account.</p></div>
-    <div class="tabs"><span class="pill on">Orders</span><button class="pill" data-act="logout">Sign out</button></div>${body}</div>`;
+  return `${head}${body}</div>`;
 }]);
 
 // ---------- actions, forms, changes ----------
@@ -523,6 +561,32 @@ const actions = {
 const forms = {
   search: form => { const q = $('input', form).value.trim(); $('#searchbar').classList.remove('open'); if (q) go('/shop?q=' + encodeURIComponent(q)); },
   coupon: async form => { couponCode = new FormData(form).get('code').trim(); await route(); },
+  profile: async form => {
+    const btn = $('button[type=submit]', form), msg = $('#account-msg', form);
+    btn.disabled = true; msg.innerHTML = '';
+    try {
+      const { user } = await api('/api/account/profile', { method: 'PUT', body: Object.fromEntries(new FormData(form)) });
+      S.user = user; renderChrome();
+      msg.innerHTML = '<div class="note ok">Your details are saved.</div>';
+      const cur = $('#p-current', form); if (cur) { cur.value = ''; $('#p-current-wrap', form).hidden = true; }
+    } catch (e) { msg.innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+    btn.disabled = false;
+  },
+  password: async form => {
+    const btn = $('button[type=submit]', form), msg = $('#account-msg', form);
+    const f = Object.fromEntries(new FormData(form));
+    msg.innerHTML = '';
+    if (f.newPassword !== f.confirmPassword) { msg.innerHTML = '<div class="note err">The new passwords don\'t match.</div>'; return; }
+    btn.disabled = true;
+    try {
+      const had = S.user.hasPassword;
+      const { user } = await api('/api/account/password', { method: 'PUT', body: { currentPassword: f.currentPassword, newPassword: f.newPassword } });
+      S.user = user;
+      if (had) { form.reset(); msg.innerHTML = '<div class="note ok">Your password has been changed.</div>'; }
+      else { toast('Password set. You can now also sign in with your email.'); await route(); return; }
+    } catch (e) { msg.innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+    btn.disabled = false;
+  },
   track: async form => {
     const btn = $('button[type=submit]', form); btn.disabled = true;
     $('#track-err').innerHTML = ''; $('#track-out').innerHTML = '';
@@ -577,6 +641,11 @@ const changes = {
   },
   'pay-pick': () => $$('.pay-opt').forEach(o => o.classList.toggle('on', $('input', o).checked))
 };
+document.addEventListener('input', ev => {
+  if (ev.target.id !== 'p-email' || !S.user) return;
+  const wrap = $('#p-current-wrap');
+  if (wrap) wrap.hidden = ev.target.value.trim().toLowerCase() === S.user.email;
+});
 
 // ---------- animated wordmark: open (auto-boutique) at the top, closed (autique.) once scrolling ----------
 let logosReady = false;
