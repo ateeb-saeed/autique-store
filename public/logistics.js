@@ -5,6 +5,7 @@ let orders = [];
 let orderFilter = 'open';
 let restockKey = null;
 let dispatchOrderId = null;
+let rights = {};   // what this login may do, set by the admin's Site editor
 
 function esc(str){
   return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -20,7 +21,10 @@ async function checkSignedIn(){
   document.getElementById('loginScreen').classList.toggle('hidden', data.signedIn);
   document.getElementById('portalShell').classList.toggle('hidden', !data.signedIn);
   if(data.signedIn){
-    await Promise.all([loadStock(), loadOrders()]);
+    rights = data.rights || {};
+    document.querySelector('.nav-btn[data-tab="orders"]').classList.toggle('hidden', !rights.viewOrders);
+    document.querySelector('.nav-btn[data-tab="history"]').classList.toggle('hidden', !rights.viewHistory);
+    await Promise.all([loadStock(), rights.viewOrders ? loadOrders() : Promise.resolve()]);
   }
 }
 
@@ -89,7 +93,7 @@ function renderStock(){
       <td class="num">${r.onHand}</td>
       <td class="num">${r.reserved || '—'}</td>
       <td class="num"><strong>${r.available}</strong> ${stockBadge(r)}</td>
-      <td><button class="icon-btn" data-restock="${esc(r.key)}">Restock</button></td>
+      <td>${rights.restock ? `<button class="icon-btn" data-restock="${esc(r.key)}">Restock</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="7" class="sub">No products match.</td></tr>';
 
@@ -144,14 +148,14 @@ function renderOrders(){
   tbody.innerHTML = rows.map(o => `
     <tr>
       <td><strong>${esc(o.orderNumber)}</strong><br><span class="sub">${fmtDate(o.createdAt)}</span></td>
-      <td>${esc(o.customerName)}<br><span class="sub">${esc(o.phone)}<br>${esc(o.address)}, ${esc(o.city)}</span></td>
+      <td>${esc(o.customerName)}<br><span class="sub">${rights.seeCustomerContact ? `${esc(o.phone)}<br>${esc(o.address)}, ` : ''}${esc(o.city)}</span></td>
       <td>${o.items.map(i => `
         ${i.qty}&times; ${esc(i.name)}${i.sku ? ` <span class="mono sub">${esc(i.sku)}</span>` : ''}
         ${i.contents.length ? `<br><span class="sub">&nbsp;&nbsp;contains: ${i.contents.map(esc).join(', ')}</span>` : ''}
       `).join('<br>')}</td>
-      <td>${o.paymentMethod === 'cod' ? `COD<br><span class="sub">Collect Rs. ${o.codAmount}</span>` : `Online<br><span class="sub">${o.paymentStatus === 'paid' ? 'Paid' : o.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment'}</span>`}</td>
+      <td>${o.paymentMethod === 'cod' ? `COD${o.codAmount != null ? `<br><span class="sub">Collect Rs. ${o.codAmount}</span>` : ''}` : `Online<br><span class="sub">${o.paymentStatus === 'paid' ? 'Paid' : o.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment'}</span>`}</td>
       <td>${esc(o.status)}${o.dispatchedAt ? `<br><span class="sub">${fmtDate(o.dispatchedAt)}${o.courier ? `<br>${esc(o.courier)}` : ''}${o.trackingNumber ? ` &middot; ${esc(o.trackingNumber)}` : ''}</span>` : ''}</td>
-      <td>${o.open ? `<button class="btn-primary btn-small" data-dispatch="${o.id}">Dispatch</button>` : ''}</td>
+      <td>${o.open && rights.dispatch ? `<button class="btn-primary btn-small" data-dispatch="${o.id}">Dispatch</button>` : ''}</td>
     </tr>
   `).join('') || `<tr><td colspan="6" class="sub">${orderFilter === 'open' ? 'Nothing waiting to be dispatched.' : 'No orders here yet.'}</td></tr>`;
 
@@ -173,7 +177,7 @@ function openDispatch(id){
   dispatchOrderId = id;
   document.getElementById('dispatchOrderNumber').textContent = o.orderNumber;
   document.getElementById('dispatchSummary').innerHTML = `
-    ${esc(o.customerName)} &middot; ${esc(o.phone)}<br>${esc(o.address)}, ${esc(o.city)}<br>
+    ${esc(o.customerName)}${o.phone ? ` &middot; ${esc(o.phone)}` : ''}<br>${o.address ? `${esc(o.address)}, ` : ''}${esc(o.city)}<br>
     ${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}
     ${o.codAmount != null ? `<br><strong>Collect Rs. ${o.codAmount} on delivery</strong>` : ''}
     <br><br>Dispatching takes these items off the stock count.

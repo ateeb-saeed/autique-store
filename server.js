@@ -9,6 +9,7 @@ const store = require('./lib/store');
 const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./lib/pricing');
 const gateway = require('./lib/rapidgateway');
 const google = require('./lib/google');
+const site = require('./lib/siteConfig');
 const crypto = require('crypto');
 
 store.seed();
@@ -113,6 +114,7 @@ function requireCustomer(req, res, next) {
 // Customer accounts
 // =========================================================
 app.post('/api/signup', (req, res) => {
+  if (!site.get().customers.allowSignup) return res.status(403).json({ error: 'New sign-ups are closed right now.' });
   const { name, email, password } = req.body || {};
   if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are all required.' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
@@ -147,6 +149,8 @@ app.post('/api/login', (req, res) => {
 // "Continue with Google": signs in, links to an existing account with the same
 // (Google-verified) email, or creates a new account with no password.
 app.post('/api/auth/google', async (req, res) => {
+  const rules = site.get().customers;
+  if (!rules.allowGoogle) return res.status(403).json({ error: 'Google sign-in is switched off.' });
   let profile;
   try { profile = await google.verifyIdToken(req.body && req.body.credential); }
   catch (e) {
@@ -159,6 +163,7 @@ app.post('/api/auth/google', async (req, res) => {
   if (user) {
     if (!user.googleSub) user.googleSub = profile.sub;
   } else {
+    if (!rules.allowSignup) return res.status(403).json({ error: 'New sign-ups are closed right now.' });
     user = { id: store.nextId(users), name: profile.name.trim(), email: profile.email, password_hash: null, googleSub: profile.sub, created_at: new Date().toISOString() };
     users.push(user);
     created = true;
@@ -187,6 +192,7 @@ app.put('/api/account/profile', requireCustomer, (req, res) => {
   if (province && !PROVINCES.includes(province)) return res.status(400).json({ error: 'Choose a province from the list.' });
 
   if (email !== user.email) {
+    if (!site.get().customers.allowEmailChange) return res.status(403).json({ error: 'Email changes are switched off. Please contact us to change your email.' });
     if (!user.password_hash) return res.status(400).json({ error: 'Your email comes from your Google account. Set a password first if you want to change it.' });
     if (!bcrypt.compareSync(String(b.currentPassword || ''), user.password_hash)) return res.status(401).json({ error: 'Enter your current password to change your email.' });
     if (users.some(u => u.id !== user.id && u.email === email)) return res.status(409).json({ error: 'Another account already uses that email.' });
@@ -322,7 +328,13 @@ app.get('/api/products', (req, res) => {
 
 app.get('/api/settings', (req, res) => {
   const s = store.getSettings();
-  res.json({ saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo, cardPayments: gateway.configured, googleClientId: google.clientId });
+  const cfg = site.get();
+  res.json({
+    saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo,
+    cardPayments: gateway.configured && cfg.customers.payOnline,
+    googleClientId: cfg.customers.allowGoogle ? google.clientId : '',
+    site: { content: cfg.content, sections: cfg.sections, customers: cfg.customers }
+  });
 });
 
 app.get('/api/bundles', (req, res) => {
@@ -361,6 +373,10 @@ app.post('/api/orders', requireCustomer, async (req, res) => {
   const hasBundles = Array.isArray(bundleItems) && bundleItems.length > 0;
   if (!hasItems && !hasVariants && !hasBundles) return res.status(400).json({ error: 'Your cart is empty.' });
   if (!['cod', 'card'].includes(paymentMethod)) return res.status(400).json({ error: 'Choose a payment method.' });
+  const rules = site.get().customers;
+  if ((paymentMethod === 'cod' && !rules.cashOnDelivery) || (paymentMethod === 'card' && !rules.payOnline)) {
+    return res.status(400).json({ error: 'That payment option is not available right now. Please choose another.' });
+  }
   if (!shipping || !shipping.name || !shipping.phone || !shipping.address || !shipping.city) {
     return res.status(400).json({ error: 'Please fill in your delivery details.' });
   }
@@ -497,6 +513,7 @@ function publicOrder(o) {
 
 // Track an order by its number plus the email on the account that placed it.
 app.post('/api/track', (req, res) => {
+  if (!site.get().customers.allowOrderTracking) return res.status(404).json({ error: 'Order tracking is not available right now.' });
   const number = String((req.body && req.body.orderNumber) || '').trim().toUpperCase();
   const email = String((req.body && req.body.email) || '').trim().toLowerCase();
   if (!number || !email) return res.status(400).json({ error: 'Enter your order number and email.' });
@@ -901,6 +918,19 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
 });
 
 // =========================================================
+// Admin: site editor
+// =========================================================
+app.get('/api/admin/site', requireAdmin, (req, res) => {
+  res.json({ site: site.get(), defaults: site.DEFAULTS, integrations: { payOnlineConfigured: gateway.configured, googleConfigured: google.configured } });
+});
+
+app.put('/api/admin/site', requireAdmin, (req, res) => {
+  const result = site.save(req.body || {});
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ site: result.site });
+});
+
+// =========================================================
 // Admin: orders
 // =========================================================
 app.get('/api/admin/orders', requireAdmin, (req, res) => {
@@ -985,8 +1015,22 @@ app.post('/api/logistics/login', (req, res) => {
 
 app.post('/api/logistics/logout', (req, res) => { req.session.isLogistics = false; res.json({ ok: true }); });
 
+// What the current logistics session may do. Admins can always do everything.
+function logisticsRights(req) {
+  if (req.session.isAdmin) return Object.fromEntries(Object.keys(site.DEFAULTS.logistics).map(k => [k, true]));
+  return site.get().logistics;
+}
+function requireLogisticsRight(right) {
+  return (req, res, next) => {
+    if (!req.session.isLogistics && !req.session.isAdmin) return res.status(401).json({ error: 'Logistics sign in required.' });
+    if (!logisticsRights(req)[right]) return res.status(403).json({ error: 'Your logistics account is not allowed to do this. Ask the admin.' });
+    next();
+  };
+}
+
 app.get('/api/logistics/me', (req, res) => {
-  res.json({ signedIn: !!(req.session.isLogistics || req.session.isAdmin) });
+  const signedIn = !!(req.session.isLogistics || req.session.isAdmin);
+  res.json({ signedIn, rights: signedIn ? logisticsRights(req) : null });
 });
 
 app.get('/api/logistics/stock', requireLogistics, (req, res) => {
@@ -1020,7 +1064,7 @@ function buildStockRows() {
   return rows;
 }
 
-app.post('/api/logistics/restock', requireLogistics, (req, res) => {
+app.post('/api/logistics/restock', requireLogisticsRight('restock'), (req, res) => {
   const { key, qty, note } = req.body || {};
   const amount = Math.floor(Number(qty));
   if (!key || !(amount > 0)) return res.status(400).json({ error: 'Enter how many units arrived (a whole number above 0).' });
@@ -1041,14 +1085,15 @@ app.post('/api/logistics/restock', requireLogistics, (req, res) => {
   res.json({ ok: true, onHand: found.target.stock });
 });
 
-app.get('/api/logistics/orders', requireLogistics, (req, res) => {
+app.get('/api/logistics/orders', requireLogisticsRight('viewOrders'), (req, res) => {
   const products = store.getProducts();
+  const rights = logisticsRights(req);
   const orders = store.getOrders().slice().sort((a, b) => b.id - a.id).map(o => ({
     id: o.id,
     orderNumber: o.orderNumber,
     customerName: o.customerName,
-    phone: o.shipping.phone,
-    address: o.shipping.address,
+    phone: rights.seeCustomerContact ? o.shipping.phone : '',
+    address: rights.seeCustomerContact ? o.shipping.address : '',
     city: o.shipping.city,
     items: o.items.map(i => {
       const found = i.bundleId ? null : findStockItem(products, stockKey(i.productId, i.variantId));
@@ -1059,7 +1104,7 @@ app.get('/api/logistics/orders', requireLogistics, (req, res) => {
     }),
     paymentMethod: o.paymentMethod,
     paymentStatus: paymentState(o),
-    codAmount: o.paymentMethod === 'cod' ? o.total : null,
+    codAmount: o.paymentMethod === 'cod' && rights.seeCodAmount ? o.total : null,
     status: o.status,
     open: isOpenOrder(o),
     createdAt: o.createdAt,
@@ -1070,7 +1115,7 @@ app.get('/api/logistics/orders', requireLogistics, (req, res) => {
   res.json({ orders });
 });
 
-app.post('/api/logistics/orders/:id/dispatch', requireLogistics, (req, res) => {
+app.post('/api/logistics/orders/:id/dispatch', requireLogisticsRight('dispatch'), (req, res) => {
   const { courier, trackingNumber } = req.body || {};
   const orders = store.getOrders();
   const order = orders.find(o => o.id === Number(req.params.id));
@@ -1112,7 +1157,7 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogistics, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/logistics/stock-log', requireLogistics, (req, res) => {
+app.get('/api/logistics/stock-log', requireLogisticsRight('viewHistory'), (req, res) => {
   res.json({ log: store.getStockLog().slice(-300).reverse() });
 });
 

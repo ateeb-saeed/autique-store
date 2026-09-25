@@ -77,6 +77,27 @@ change it to something only you know.
   details, what they bought, the payment method, and a status you can
   update (Pending, Confirmed, Shipped, Delivered, etc).
 
+## Site editor (admin → Site editor)
+
+One place to change what customers and the logistics login see, without
+touching code. Saved in `data/site.json`; anything never saved uses the
+original wording.
+
+- **Content** — announcement bar, home page hero (heading, text, button,
+  brands), trust strip, bestsellers heading and count, brand panel, the About
+  story and points, footer tagline and help lines.
+- **Sections** — show or hide the animated logo banner, trust strip,
+  collections, bundles, bestsellers, brand panel and the About page.
+- **Customer rules** — new sign-ups, Google sign-in, email changes, order
+  tracking, cash on delivery, pay online (at least one payment option must stay
+  on).
+- **Logistics rights** — whether the logistics login can see orders, dispatch,
+  restock, see stock history, see customers' phone/address and see COD amounts.
+  The admin can always do everything.
+
+These are enforced on the server, not just hidden on the page. "Restore
+defaults for this section" brings back the original settings (after Save).
+
 ## Logistics portal
 
 A separate sign-in for the stock person at

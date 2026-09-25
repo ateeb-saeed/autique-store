@@ -49,6 +49,10 @@ const PAY_LABEL = { paid: 'Paid', pending: 'Awaiting payment', failed: 'Payment 
 // Set when Rapid Gateway sends the customer back to /?order=<orderNumber>
 let returnedOrder = null;
 
+// Site editor settings (content, visible sections, customer rules)
+const SITE = () => S.settings.site;
+const paragraphs = text => String(text || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('');
+
 const imgOrIcon = src => src ? `<img src="${esc(src)}" alt="" loading="lazy">` : BOTTLE;
 const variantLabel = v => [v.color, v.size].filter(Boolean).join(' / ') || 'Standard';
 
@@ -122,22 +126,25 @@ function renderChrome() {
     link('/', 'Home') + link('/shop', 'Shop all')
     + `<div class="label">Collections</div>`
     + S.categories.map(c => link('/shop/' + c.key, c.title, `<span class="count">${c.products.length}</span>`)).join('')
-    + (S.bundles.length ? link('/bundles', 'Bundles', `<span class="count">${S.bundles.length}</span>`) : '')
+    + (SITE().sections.bundles && S.bundles.length ? link('/bundles', 'Bundles', `<span class="count">${S.bundles.length}</span>`) : '')
     + (S.settings.saleActive ? link('/shop?sale=1', 'Sale') : '')
     + `<div class="sep"></div>`
-    + link('/track', 'Track your order') + link('/about', 'About us')
+    + (SITE().customers.allowOrderTracking ? link('/track', 'Track your order') : '')
+    + (SITE().sections.aboutPage ? link('/about', 'About us') : '')
     + `<div class="sep"></div>`
     + (S.user ? link('/account', 'My orders') : link('/login', 'Sign in'))
     + link('/cart', 'Shopping bag', `<span class="count">${cart.count()}</span>`)
     + (S.user ? '<button data-act="logout">Sign out</button>' : '');
-  $('#announce').textContent = S.settings.saleActive && S.settings.saleLabel ? S.settings.saleLabel : 'Cash on delivery available across Pakistan';
+  const announcement = S.settings.saleActive && S.settings.saleLabel ? S.settings.saleLabel : SITE().content.announcement;
+  $('#announce').textContent = announcement;
+  $('#announce').hidden = !announcement;
   $('#acct-btn').setAttribute('href', S.user ? '#/account' : '#/login');
   cart.badge();
   $('#footer').innerHTML = `<div class="container"><div class="foot">
-    <div><a class="foot-logo" href="#/"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:32ch">Premium car care for the discerning driver. Shine worthy of a durbar.</p></div>
+    <div><a class="foot-logo" href="#/"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:32ch">${esc(SITE().content.footerTagline)}</p></div>
     <div><h4>Shop</h4>${S.categories.slice(0, 5).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}</div>
-    <div><h4>Account</h4><a href="#/account">My orders</a><a href="#/track">Track your order</a><a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}</div>
-    <div><h4>Help</h4><a href="#/about">About us</a><p>Cash on delivery across Pakistan</p><p>Secure card payments by Rapid Gateway</p></div>
+    <div><h4>Account</h4><a href="#/account">My orders</a>${SITE().customers.allowOrderTracking ? '<a href="#/track">Track your order</a>' : ''}<a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}</div>
+    <div><h4>Help</h4>${SITE().sections.aboutPage ? '<a href="#/about">About us</a>' : ''}${SITE().content.footerHelp.map(h => `<p>${esc(h)}</p>`).join('')}</div>
   </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} Autique. All rights reserved.</div></div>`;
 }
 function openMenu(open) {
@@ -170,48 +177,47 @@ function bundleHTML(b) {
 const routes = [];
 
 // HOME
+const TRUST_ICONS = () => [ICON.cash, ICON.truck, ICON.shield];
 routes.push([/^\/?$/, () => {
+  const { content: c, sections: on, customers } = SITE();
   const onSale = S.products.filter(p => p.originalPrice);
-  const brands = ['Gladiator', 'Sogo', 'Prato', 'WTB'];
+  const brands = c.brands;
+  const trust = c.trust.filter(t => t.title || t.text);
   return `<div class="container">
-    ${returnedOrder ? `<div class="pay-banner" role="status"><p>Thanks! We're confirming payment for order <b>${esc(returnedOrder)}</b>. This page will not update by itself, but you'll see the confirmed status under <a class="link" href="#/account">My orders</a> or <a class="link" href="#/track?n=${esc(returnedOrder)}">Track your order</a> once it's processed.</p><button class="pay-banner-close" data-act="dismiss-pay-banner" aria-label="Dismiss">&times;</button></div>` : ''}
-    <section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
+    ${returnedOrder ? `<div class="pay-banner" role="status"><p>Thanks! We're confirming payment for order <b>${esc(returnedOrder)}</b>. This page will not update by itself, but you'll see the confirmed status under <a class="link" href="#/account">My orders</a>${customers.allowOrderTracking ? ` or <a class="link" href="#/track?n=${esc(returnedOrder)}">Track your order</a>` : ''} once it's processed.</p><button class="pay-banner-close" data-act="dismiss-pay-banner" aria-label="Dismiss">&times;</button></div>` : ''}
+    ${on.logoBanner ? `<section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
       <div class="about-logo split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
       <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
-    </section>
+    </section>` : ''}
     <section class="stage">
       <div>
-        <div class="eyebrow">Premium car care</div>
-        <h1>Shine worthy of a durbar.</h1>
-        <p class="lede">Waxes, tyre gels, cleaners and engine care from the brands detailers trust, delivered across Pakistan.</p>
-        <div class="cta"><a class="btn btn-primary btn-lg" href="#/shop">Shop all products</a>${S.settings.saleActive ? '<a class="btn btn-outline btn-lg" href="#/shop?sale=1">See the sale</a>' : S.bundles.length ? '<a class="btn btn-outline btn-lg" href="#/bundles">View bundles</a>' : ''}</div>
+        ${c.heroEyebrow ? `<div class="eyebrow">${esc(c.heroEyebrow)}</div>` : ''}
+        <h1>${esc(c.heroTitle)}</h1>
+        ${c.heroText ? `<p class="lede">${esc(c.heroText)}</p>` : ''}
+        <div class="cta"><a class="btn btn-primary btn-lg" href="#/shop">${esc(c.heroButton)}</a>${S.settings.saleActive ? '<a class="btn btn-outline btn-lg" href="#/shop?sale=1">See the sale</a>' : on.bundles && S.bundles.length ? '<a class="btn btn-outline btn-lg" href="#/bundles">View bundles</a>' : ''}</div>
       </div>
       <div class="stage-art"><div class="stage-ring">${BOTTLE}</div>
-        <div class="stage-brands">${brands.map(b => `<span>${b}</span>`).join('')}</div></div>
+        ${brands.length ? `<div class="stage-brands">${brands.map(b => `<span>${esc(b)}</span>`).join('')}</div>` : ''}</div>
     </section>
-    <div class="trust">
-      <div>${ICON.cash}<p><b>Cash on delivery</b><span>Pay when your order arrives</span></p></div>
-      <div>${ICON.truck}<p><b>Delivery across Pakistan</b><span>To your door, wherever you are</span></p></div>
-      <div>${ICON.shield}<p><b>Genuine brands</b><span>Gladiator, Sogo, Prato and WTB</span></p></div>
-    </div>
+    ${on.trustStrip && trust.length ? `<div class="trust">${trust.map((t, i) => `<div>${TRUST_ICONS()[i % 3]}<p><b>${esc(t.title)}</b><span>${esc(t.text)}</span></p></div>`).join('')}</div>` : ''}
 
-    <section class="section"><div class="section-head"><div><h2>Shop by collection</h2></div><a class="link" href="#/shop">View everything</a></div>
-      <div class="tiles">${S.categories.map(c => `<a class="tile" href="#/shop/${esc(c.key)}"><div><h3>${esc(c.title)}</h3><p>${esc(c.tagline)}</p></div><span class="go">${c.products.length} ${c.products.length === 1 ? 'product' : 'products'} &rarr;</span></a>`).join('')}</div></section>
+    ${on.collections ? `<section class="section"><div class="section-head"><div><h2>Shop by collection</h2></div><a class="link" href="#/shop">View everything</a></div>
+      <div class="tiles">${S.categories.map(cat => `<a class="tile" href="#/shop/${esc(cat.key)}"><div><h3>${esc(cat.title)}</h3><p>${esc(cat.tagline)}</p></div><span class="go">${cat.products.length} ${cat.products.length === 1 ? 'product' : 'products'} &rarr;</span></a>`).join('')}</div></section>` : ''}
 
     ${S.settings.saleActive ? `<section class="section"><div class="saleband"><div><h2>${esc(S.settings.saleLabel || 'Sale on now')}</h2><p>Sale prices are applied automatically in your bag.</p></div><a class="btn btn-primary btn-lg" href="#/shop?sale=1">Shop the sale</a></div>
       ${onSale.length ? `<div style="margin-top:34px">${gridHTML(onSale.slice(0, 4))}</div>` : ''}</section>` : ''}
 
-    ${S.bundles.length ? `<section class="section"><div class="section-head"><div><h2>This month's bundles</h2><p>Save more when you pair products together.</p></div><a class="link" href="#/bundles">All bundles</a></div>
+    ${on.bundles && S.bundles.length ? `<section class="section"><div class="section-head"><div><h2>This month's bundles</h2><p>Save more when you pair products together.</p></div><a class="link" href="#/bundles">All bundles</a></div>
       <div class="bundles">${S.bundles.slice(0, 3).map(bundleHTML).join('')}</div></section>` : ''}
 
-    <section class="section"><div class="section-head"><div><h2>Bestsellers</h2><p>The flagship Gladiator line and more.</p></div><a class="link" href="#/shop">Shop all</a></div>${gridHTML(S.products.slice(0, 8))}</section>
+    ${on.bestsellers ? `<section class="section"><div class="section-head"><div><h2>${esc(c.bestsellersTitle)}</h2>${c.bestsellersText ? `<p>${esc(c.bestsellersText)}</p>` : ''}</div><a class="link" href="#/shop">Shop all</a></div>${gridHTML(S.products.slice(0, c.bestsellersCount))}</section>` : ''}
 
-    <section class="section"><div class="split">
-      <div class="panel"><h2>A showroom finish, at home.</h2><p>Everything here is chosen to make your car look its best and keep it that way, inside and out.</p>
-        <ul class="facts"><li>${ICON.check}<span>Exterior, interior and engine care in one place</span></li><li>${ICON.check}<span>Bundles that save you money every month</span></li><li>${ICON.check}<span>Order online and pay cash on delivery</span></li></ul>
+    ${on.brandPanel ? `<section class="section"><div class="split">
+      <div class="panel"><h2>${esc(c.panelTitle)}</h2>${c.panelText ? `<p>${esc(c.panelText)}</p>` : ''}
+        ${c.panelPoints.length ? `<ul class="facts">${c.panelPoints.map(pt => `<li>${ICON.check}<span>${esc(pt)}</span></li>`).join('')}</ul>` : ''}
         <a class="btn btn-primary" href="#/shop">Explore the collection</a></div>
-      <div class="panel brands">${brands.map(b => `<div>${b}</div>`).join('')}</div>
-    </div></section>
+      <div class="panel brands">${brands.map(b => `<div>${esc(b)}</div>`).join('')}</div>
+    </div></section>` : ''}
   </div>`;
 }]);
 
@@ -244,7 +250,7 @@ routes.push([/^\/shop(?:\/([\w-]+))?$/, (m, q) => {
 // BUNDLES
 routes.push([/^\/bundles$/, () => `<div class="container">
   <div class="page-head"><h1>Bundles</h1><p>Save more when you pair products together.</p></div>
-  ${S.bundles.length ? `<div class="bundles">${S.bundles.map(bundleHTML).join('')}</div>` : '<div class="empty"><h3>No bundles right now</h3><p>Check back soon.</p></div>'}
+  ${SITE().sections.bundles && S.bundles.length ? `<div class="bundles">${S.bundles.map(bundleHTML).join('')}</div>` : '<div class="empty"><h3>No bundles right now</h3><p>Check back soon.</p></div>'}
 </div>`]);
 
 // PRODUCT
@@ -332,7 +338,7 @@ routes.push([/^\/checkout$/, async () => {
   if (!S.user) return `<div class="container"><div class="auth" style="text-align:center"><h1>Sign in to check out</h1>
     <p class="sub">An account lets you track every order, see its status and reorder in seconds. Your bag is saved.</p>
     <div class="box form"><a class="btn btn-primary btn-lg btn-block" href="#/login?next=/checkout">Sign in</a>
-    <a class="btn btn-outline btn-lg btn-block" href="#/register?next=/checkout">Create an account</a></div></div></div>`;
+    ${SITE().customers.allowSignup ? '<a class="btn btn-outline btn-lg btn-block" href="#/register?next=/checkout">Create an account</a>' : ''}</div></div></div>`;
   const t = await totals(lines);
   const u = S.user;
   const itemRows = `<div style="margin:0 0 16px">${lines.map(l => `<div class="sum-row"><span>${esc(l.name)}${l.type === 'variant' ? ` <span class="muted">(${esc(l.label)})</span>` : ''} <span class="muted">&times; ${l.qty}</span></span><span>${fmt(l.price * l.qty)}</span></div>`).join('')}</div>`;
@@ -348,8 +354,9 @@ routes.push([/^\/checkout$/, async () => {
       <div class="field"><label for="c-notes">Order notes (optional)</label><textarea class="input" id="c-notes" name="notes" rows="2" placeholder="Landmark, preferred delivery time..."></textarea></div>
     </div></div>
     <div class="box"><h3>Payment</h3>
-      <label class="pay-opt on"><input type="radio" name="paymentMethod" value="cod" checked data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>
-      ${S.settings.cardPayments ? `<label class="pay-opt"><input type="radio" name="paymentMethod" value="card" data-change="pay-pick"><div><b>Pay online</b><span>Card, JazzCash or Easypaisa, on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
+      ${SITE().customers.cashOnDelivery ? `<label class="pay-opt on"><input type="radio" name="paymentMethod" value="cod" checked data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>` : ''}
+      ${S.settings.cardPayments ? `<label class="pay-opt ${SITE().customers.cashOnDelivery ? '' : 'on'}"><input type="radio" name="paymentMethod" value="card" ${SITE().customers.cashOnDelivery ? '' : 'checked'} data-change="pay-pick"><div><b>Pay online</b><span>Card, JazzCash or Easypaisa, on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
+      ${!SITE().customers.cashOnDelivery && !S.settings.cardPayments ? '<div class="note err">No payment option is available right now. Please try again later.</div>' : ''}
     </div>
   </div>
   <div>${summaryHTML(t, `<div id="co-err"></div><button class="btn btn-primary btn-lg btn-block" type="submit" style="margin-top:16px">Place order</button>${t.code ? `<p class="small muted" style="margin-top:12px;text-align:center">Code ${esc(t.code)} applied.</p>` : ''}`, itemRows)}</div></form></div>`;
@@ -402,7 +409,7 @@ function trackResultHTML(o) {
     <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
     <p class="small muted" style="margin-top:14px">Delivering to ${esc(o.shipping.city)}${o.shipping.province ? ', ' + esc(o.shipping.province) : ''}.</p></div>`;
 }
-routes.push([/^\/track$/, (m, q) => `<div class="container" style="max-width:720px"><div class="page-head"><h1>Track your order</h1><p>Enter the order number from your confirmation (it looks like AUT-1001) and the email on your account.</p></div>
+routes.push([/^\/track$/, (m, q) => !SITE().customers.allowOrderTracking ? notAvailable('Order tracking is not available right now') : `<div class="container" style="max-width:720px"><div class="page-head"><h1>Track your order</h1><p>Enter the order number from your confirmation (it looks like AUT-1001) and the email on your account.</p></div>
   <form class="box form" data-form="track">
     <div class="row"><div class="field"><label for="t-num">Order number</label><input class="input" id="t-num" name="orderNumber" value="${esc(q.get('n') || '')}" placeholder="AUT-1001" required autocapitalize="characters"></div>
     <div class="field"><label for="t-email">Email</label><input class="input" id="t-email" type="email" name="email" value="${esc(S.user ? S.user.email : '')}" required autocomplete="email"></div></div>
@@ -410,7 +417,10 @@ routes.push([/^\/track$/, (m, q) => `<div class="container" style="max-width:720
   <div id="track-out" style="margin-top:20px"></div></div>`]);
 
 // ABOUT
+const notAvailable = title => `<div class="container"><div class="empty" style="padding:120px 0"><h3>${esc(title)}</h3><p style="margin-top:20px"><a class="btn btn-primary" href="#/">Back to the shop</a></p></div></div>`;
 routes.push([/^\/about$/, () => {
+  const { content: c, sections, customers } = SITE();
+  if (!sections.aboutPage) return notAvailable('This page is not available');
   const html = `<div class="container">
     <section class="about-hero" aria-label="autique. stands for auto-boutique">
       <div class="about-logo split-logo" id="about-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
@@ -418,17 +428,10 @@ routes.push([/^\/about$/, () => {
       <button class="about-replay" data-act="about-replay">Play again</button>
     </section>
     <section class="about-story">
-      <h1>Why we started Autique</h1>
-      <p>It started on a Sunday morning, with a bucket, a borrowed hose and a car that deserved better. We loved our cars, but looking after them felt like a gamble: dusty shelves, faded labels, and no one who could tell you which wax would survive a Lahore summer or which cleaner was safe on leather.</p>
-      <p>So we started asking the people who knew. Detailers, workshop owners, the uncle down the street whose 30-year-old sedan still turned heads. The same few names kept coming up: Gladiator, Sogo, Prato, WTB. Good products existed; they were just hard to find, easy to fake, and sold without care.</p>
-      <p>We wanted a place that treated car care the way a boutique treats fashion: a small, trusted collection, chosen by people who actually use it, and explained in plain words. An <em>auto boutique</em>. Say it fast enough and you get <strong>Autique</strong>.</p>
-      <p>Today we pick every product ourselves, keep our range deliberately small, and deliver across Pakistan with cash on delivery, because trust should come before payment. Whether it's a daily driver or a weekend pride and joy, we want your car to have a shine worthy of a durbar.</p>
-      <ul class="facts">
-        <li>${ICON.check}<span><b>Chosen, not stocked.</b> If we wouldn't use it on our own cars, we don't sell it.</span></li>
-        <li>${ICON.check}<span><b>Genuine only.</b> Sourced from the brands and their trusted suppliers.</span></li>
-        <li>${ICON.check}<span><b>Honest help.</b> Ask us what to use and we'll tell you, even if it's the cheaper bottle.</span></li>
-      </ul>
-      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="#/shop">Shop the collection</a><a class="btn btn-outline btn-lg" href="#/track">Track an order</a></p>
+      <h1>${esc(c.aboutTitle)}</h1>
+      ${paragraphs(c.aboutStory)}
+      ${c.aboutPoints.length ? `<ul class="facts">${c.aboutPoints.map(pt => `<li>${ICON.check}<span>${pt.title ? `<b>${esc(pt.title)}</b> ` : ''}${esc(pt.text)}</span></li>`).join('')}</ul>` : ''}
+      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="#/shop">Shop the collection</a>${customers.allowOrderTracking ? '<a class="btn btn-outline btn-lg" href="#/track">Track an order</a>' : ''}</p>
     </section></div>`;
   const mount = () => { setTimeout(() => { const l = $('#about-logo'); if (l) l.classList.add('is-split'); }, 700); };
   return { html, mount };
@@ -479,11 +482,13 @@ const authPage = (mode, next) => {
       <div class="field"><label for="a-email">Email</label><input class="input" id="a-email" type="email" name="email" required autocomplete="email"></div>
       <div class="field"><label for="a-pass">Password</label><input class="input" id="a-pass" type="password" name="password" required minlength="${reg ? 6 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">${reg ? '<div class="hint">At least 6 characters.</div>' : ''}</div>
       <button class="btn btn-primary btn-lg btn-block" type="submit">${reg ? 'Create account' : 'Sign in'}</button>
-      <p class="small muted" style="text-align:center">${reg ? `Already have an account? <a class="link" href="#/login?next=${esc(next)}">Sign in</a>` : `New here? <a class="link" href="#/register?next=${esc(next)}">Create an account</a>`}</p></form></div></div>`;
+      <p class="small muted" style="text-align:center">${reg ? `Already have an account? <a class="link" href="#/login?next=${esc(next)}">Sign in</a>` : (SITE().customers.allowSignup ? `New here? <a class="link" href="#/register?next=${esc(next)}">Create an account</a>` : '')}</p></form></div></div>`;
   return { html, mount: root => { mountGoogleButton(root, reg, next); } };
 };
 routes.push([/^\/login$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('login', q.get('next') || '/account')]);
-routes.push([/^\/register$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('register', q.get('next') || '/account')]);
+routes.push([/^\/register$/, (m, q) => S.user ? go(q.get('next') || '/account')
+  : !SITE().customers.allowSignup ? `<div class="container"><div class="auth" style="text-align:center"><h1>Sign-ups are closed</h1><p class="sub">We're not taking new accounts right now. Already have one?</p><a class="btn btn-primary btn-lg" href="#/login?next=${esc(q.get('next') || '/account')}">Sign in</a></div></div>`
+  : authPage('register', q.get('next') || '/account')]);
 
 function accountTabs(tab) {
   const t = (key, label) => `<a class="pill ${tab === key ? 'on' : ''}" href="#/account${key === 'orders' ? '' : '?tab=' + key}">${label}</a>`;
@@ -491,14 +496,15 @@ function accountTabs(tab) {
 }
 function profileHTML(u) {
   const googleOnly = !u.hasPassword;
+  const emailLocked = googleOnly || !SITE().customers.allowEmailChange;
   return `<form class="box form account-form" data-form="profile">
     <div id="account-msg"></div>
     <h3>Your details</h3>
     <div class="row"><div class="field"><label for="p-name">Full name</label><input class="input" id="p-name" name="name" value="${esc(u.name)}" required maxlength="80" autocomplete="name"></div>
     <div class="field"><label for="p-phone">Phone</label><input class="input" id="p-phone" name="phone" value="${esc(u.phone)}" autocomplete="tel" placeholder="03xx xxxxxxx"></div></div>
-    <div class="field"><label for="p-email">Email</label><input class="input" id="p-email" type="email" name="email" value="${esc(u.email)}" required autocomplete="email" ${googleOnly ? 'readonly' : ''}>
-      <div class="hint">${googleOnly ? 'Your email comes from your Google account. Set a password to be able to change it.' : 'Orders you already placed stay linked to the email they were placed with, for tracking.'}</div></div>
-    ${googleOnly ? '' : `<div class="field" id="p-current-wrap" hidden><label for="p-current">Current password</label><input class="input" id="p-current" type="password" name="currentPassword" autocomplete="current-password"><div class="hint">Needed to change your email.</div></div>`}
+    <div class="field"><label for="p-email">Email</label><input class="input" id="p-email" type="email" name="email" value="${esc(u.email)}" required autocomplete="email" ${emailLocked ? 'readonly' : ''}>
+      <div class="hint">${!SITE().customers.allowEmailChange ? 'To change your email, please contact us.' : googleOnly ? 'Your email comes from your Google account. Set a password to be able to change it.' : 'Orders you already placed stay linked to the email they were placed with, for tracking.'}</div></div>
+    ${emailLocked ? '' : `<div class="field" id="p-current-wrap" hidden><label for="p-current">Current password</label><input class="input" id="p-current" type="password" name="currentPassword" autocomplete="current-password"><div class="hint">Needed to change your email.</div></div>`}
     <h3 style="margin-top:8px">Saved delivery address</h3>
     <p class="hint" style="margin-top:-10px">Filled in for you at checkout.</p>
     <div class="field"><label for="p-addr">Address</label><input class="input" id="p-addr" name="address" value="${esc(u.address)}" maxlength="200" autocomplete="street-address" placeholder="House, street, area"></div>
@@ -530,7 +536,7 @@ routes.push([/^\/account$/, async (m, q) => {
   const body = orders.length ? orders.map(o => `<div class="order-card"><div class="order-top"><div><b>${esc(o.orderNumber)}</b> <span class="muted small">&middot; ${fdate(o.createdAt)}</span></div><span class="status ${o.status === 'Cancelled' ? 'bad' : ''}">${esc(o.status)}</span></div>
       <div class="order-lines">${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}</div>
       ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
-      <a class="link small" style="display:inline-block;margin-top:10px" href="#/track?n=${esc(o.orderNumber)}">Track this order</a>
+      ${SITE().customers.allowOrderTracking ? `<a class="link small" style="display:inline-block;margin-top:10px" href="#/track?n=${esc(o.orderNumber)}">Track this order</a>` : ''}
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
       <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
       </div>`).join('')

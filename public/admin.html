@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
 <link rel="icon" href="logo.png">
-<link rel="stylesheet" href="admin.css?v=10">
+<link rel="stylesheet" href="admin.css?v=13">
 </head>
 <body>
 
@@ -40,6 +40,7 @@
       <button class="nav-btn" data-tab="bundles">Bundles</button>
       <button class="nav-btn" data-tab="sale">Sale</button>
       <button class="nav-btn" data-tab="orders">Orders</button>
+      <button class="nav-btn" data-tab="site">Site editor</button>
       <button class="nav-btn" data-tab="settings">Admin settings</button>
     </nav>
     <div class="sidebar-foot">
@@ -248,6 +249,15 @@
       </table>
     </section>
 
+    <!-- Site editor -->
+    <section class="tab-panel hidden" id="tab-site">
+      <div class="panel-head">
+        <h2>Site editor</h2>
+        <div class="panel-head-actions"><a class="btn btn-sm" href="/" target="_blank" rel="noopener">View store</a><a class="btn btn-sm" href="logistics.html" target="_blank" rel="noopener">View logistics portal</a></div>
+      </div>
+      <div id="siteEditor"></div>
+    </section>
+
     <!-- Admin settings -->
     <section class="tab-panel hidden" id="tab-settings">
       <div class="panel-head"><h2>Admin settings</h2></div>
@@ -299,7 +309,8 @@
   </form>
 </div>
 
-<script src="admin.js?v=10"></script>
-<script src="admin-dashboard.js?v=4"></script>
+<script src="admin.js?v=13"></script>
+<script src="admin-dashboard.js?v=13"></script>
+<script src="admin-site.js?v=13"></script>
 </body>
 </html>

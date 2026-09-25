@@ -40,6 +40,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
     if(btn.dataset.tab === 'dashboard') loadDashboard();
+    if(btn.dataset.tab === 'site') loadSiteEditor();
   });
 });
 
