@@ -8,6 +8,7 @@ const multer = require('multer');
 const store = require('./lib/store');
 const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./lib/pricing');
 const gateway = require('./lib/rapidgateway');
+const google = require('./lib/google');
 const crypto = require('crypto');
 
 store.seed();
@@ -130,9 +131,34 @@ app.post('/api/login', (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   const user = store.getUsers().find(u => u.email === email.toLowerCase().trim());
+  if (user && !user.password_hash) return res.status(401).json({ error: 'This account uses Google sign-in. Please use "Continue with Google".' });
   if (!user || !bcrypt.compareSync(password, user.password_hash)) return res.status(401).json({ error: 'Incorrect email or password.' });
   req.session.userId = user.id;
   res.json({ user: publicUser(user) });
+});
+
+// "Continue with Google": signs in, links to an existing account with the same
+// (Google-verified) email, or creates a new account with no password.
+app.post('/api/auth/google', async (req, res) => {
+  let profile;
+  try { profile = await google.verifyIdToken(req.body && req.body.credential); }
+  catch (e) {
+    console.warn('Google sign-in rejected:', e.message);
+    return res.status(401).json({ error: 'Google sign-in failed. Please try again.' });
+  }
+  const users = store.getUsers();
+  let user = users.find(u => u.googleSub === profile.sub) || users.find(u => u.email === profile.email);
+  let created = false;
+  if (user) {
+    if (!user.googleSub) user.googleSub = profile.sub;
+  } else {
+    user = { id: store.nextId(users), name: profile.name.trim(), email: profile.email, password_hash: null, googleSub: profile.sub, created_at: new Date().toISOString() };
+    users.push(user);
+    created = true;
+  }
+  store.saveUsers(users);
+  req.session.userId = user.id;
+  res.json({ user: publicUser(user), created });
 });
 
 app.post('/api/logout', (req, res) => { req.session.destroy(() => res.json({ ok: true })); });
@@ -244,7 +270,7 @@ app.get('/api/products', (req, res) => {
 
 app.get('/api/settings', (req, res) => {
   const s = store.getSettings();
-  res.json({ saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo, cardPayments: gateway.configured });
+  res.json({ saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo, cardPayments: gateway.configured, googleClientId: google.clientId });
 });
 
 app.get('/api/bundles', (req, res) => {

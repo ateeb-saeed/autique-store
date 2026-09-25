@@ -92,6 +92,21 @@ no prices and can't change products, coupons, sales or settings.
   the items off the stock count; it's refused if there isn't enough stock.
 - **Stock history** — every restock and dispatch, with the running balance.
 
+## Sign in with Google
+
+The sign-up and sign-in pages show a **Continue with Google** button when
+`GOOGLE_CLIENT_ID` is set (hidden otherwise). The server checks Google's
+signed ID token itself (signature, issuer, audience, expiry, verified email).
+A Google sign-in with an email that already has an account signs into that
+account; otherwise a new account is created with no password (those customers
+always use the Google button).
+
+To get a client id: Google Cloud Console → APIs & Services → Credentials →
+Create credentials → OAuth client ID → Web application. Under **Authorized
+JavaScript origins** add `http://localhost:3000` and your live address (e.g.
+`https://autique.pk`). No redirect URI is needed. Copy the client id into
+`GOOGLE_CLIENT_ID`.
+
 ## What checkout looks like for a customer
 
 Customers need an account to order, so every order can be tracked. Anyone

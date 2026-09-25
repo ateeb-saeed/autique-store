@@ -250,6 +250,9 @@ select, .input, textarea{ width:100%; padding:12px 16px; border-radius:var(--r-s
 
 .auth{ max-width:440px; margin:56px auto 0; }
 .auth h1{ font-size:2rem; text-align:center; }
+.google-auth{ display:flex; justify-content:center; min-height:44px; }
+.or-sep{ display:flex; align-items:center; gap:12px; color:var(--ink-3); font-size:0.82rem; }
+.or-sep::before, .or-sep::after{ content:''; flex:1; height:1px; background:var(--line); }
 .auth .sub{ text-align:center; color:var(--ink-2); margin:10px 0 28px; }
 
 .tabs{ display:flex; gap:8px; margin-bottom:26px; flex-wrap:wrap; }

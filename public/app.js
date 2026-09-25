@@ -435,16 +435,52 @@ routes.push([/^\/about$/, () => {
 }]);
 
 // AUTH + ACCOUNT
+// Google's sign-in script, loaded only when an auth page is shown
+let googleScript = null;
+function loadGoogleScript() {
+  if (!googleScript) googleScript = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = () => { googleScript = null; reject(new Error('Could not load Google sign-in.')); };
+    document.head.appendChild(s);
+  });
+  return googleScript;
+}
+async function mountGoogleButton(root, reg, next) {
+  const box = $('#google-btn', root);
+  if (!box || !S.settings.googleClientId) return;
+  try { await loadGoogleScript(); }
+  catch (e) { box.innerHTML = `<p class="small muted">${esc(e.message)}</p>`; return; }
+  if (!document.body.contains(box)) return; // the customer already moved on
+  google.accounts.id.initialize({
+    client_id: S.settings.googleClientId,
+    ux_mode: 'popup',
+    callback: async ({ credential }) => {
+      try {
+        const { user, created } = await api('/api/auth/google', { method: 'POST', body: { credential } });
+        S.user = user; renderChrome();
+        toast(created ? 'Account created. Welcome!' : 'Welcome back, ' + user.name.split(' ')[0]);
+        go(next || '/account');
+      } catch (e) { $('#auth-err').innerHTML = `<div class="note err">${esc(e.message)}</div>`; }
+    }
+  });
+  google.accounts.id.renderButton(box, { theme: 'outline', size: 'large', shape: 'pill', text: reg ? 'signup_with' : 'continue_with', width: Math.min(box.clientWidth || 360, 400) });
+}
+
 const authPage = (mode, next) => {
   const reg = mode === 'register';
-  return `<div class="container"><div class="auth"><h1>${reg ? 'Create your account' : 'Welcome back'}</h1><p class="sub">${reg ? 'Track orders and check out faster.' : 'Sign in to see your orders.'}</p>
+  const html = `<div class="container"><div class="auth"><h1>${reg ? 'Create your account' : 'Welcome back'}</h1><p class="sub">${reg ? 'Track orders and check out faster.' : 'Sign in to see your orders.'}</p>
     <form class="box form" data-form="${reg ? 'register' : 'login'}" data-next="${esc(next)}">
       <div id="auth-err"></div>
+      ${S.settings.googleClientId ? `<div class="google-auth"><div id="google-btn"></div></div><div class="or-sep"><span>or ${reg ? 'sign up' : 'sign in'} with email</span></div>` : ''}
       ${reg ? '<div class="field"><label for="a-name">Full name</label><input class="input" id="a-name" name="name" required autocomplete="name"></div>' : ''}
       <div class="field"><label for="a-email">Email</label><input class="input" id="a-email" type="email" name="email" required autocomplete="email"></div>
       <div class="field"><label for="a-pass">Password</label><input class="input" id="a-pass" type="password" name="password" required minlength="${reg ? 6 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">${reg ? '<div class="hint">At least 6 characters.</div>' : ''}</div>
       <button class="btn btn-primary btn-lg btn-block" type="submit">${reg ? 'Create account' : 'Sign in'}</button>
       <p class="small muted" style="text-align:center">${reg ? `Already have an account? <a class="link" href="#/login?next=${esc(next)}">Sign in</a>` : `New here? <a class="link" href="#/register?next=${esc(next)}">Create an account</a>`}</p></form></div></div>`;
+  return { html, mount: root => { mountGoogleButton(root, reg, next); } };
 };
 routes.push([/^\/login$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('login', q.get('next') || '/account')]);
 routes.push([/^\/register$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('register', q.get('next') || '/account')]);
