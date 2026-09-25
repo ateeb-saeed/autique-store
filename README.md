@@ -170,7 +170,7 @@ To list it in the Microsoft Store, Google Play or the App Store, feed the
 live URL to pwabuilder.com, which packages this same web app for each store.
 
 The admin and logistics portals are **separate apps**: **autique admin**
-(`/admin/`, navy car on copper) and **autique logistics** (`/logistics/`,
+(`/admin/`, copper car on navy) and **autique logistics** (`/logistics/`,
 copper car on white). Each has its own manifest, icon and "Install the …
 app" link in its sidebar, and installs as its own entry on the phone or PC.
 They never cache anything, because they show live orders, stock and customer
