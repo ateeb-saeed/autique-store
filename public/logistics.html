@@ -125,18 +125,23 @@
   <h2 class="modal-title">Dispatch <span id="dispatchOrderNumber"></span></h2>
   <div class="hint-text" id="dispatchSummary"></div>
   <form class="inline-form-col" id="dispatchForm">
-    <label class="field-label">Courier (optional)
-      <input type="text" name="courier" placeholder="e.g. TCS, Leopards, M&amp;P">
+    <label class="field-label">Courier
+      <input type="text" name="courier" value="PostEx (Call Courier)" maxlength="60">
     </label>
-    <label class="field-label">Tracking number (optional)
-      <input type="text" name="trackingNumber">
+    <label class="field-label">PostEx tracking number
+      <input type="text" name="trackingNumber" maxlength="64" placeholder="The customer gets a tracking link for it">
     </label>
     <div class="error-text" id="dispatchError"></div>
     <button type="submit" class="btn-primary">Mark as dispatched</button>
+    <p class="hint-text">The customer is emailed that the order is on its way, with the invoice attached.</p>
   </form>
+  <div id="dispatchDone" class="hidden">
+    <p class="hint-text">Dispatched. Print the invoice / dispatch note and pack it with the parcel for the courier.</p>
+    <a class="btn-primary" id="dispatchInvoiceLink" href="#" target="_blank" rel="noopener">Print invoice / dispatch note</a>
+  </div>
 </div>
 
-<script src="/logistics.js?v=15"></script>
+<script src="/logistics.js?v=16"></script>
 <script src="/portal-app.js?v=15" data-app-name="autique logistics" data-icon="/icons/logistics-192.png" data-sw="/logistics/sw.js"></script>
 </body>
 </html>

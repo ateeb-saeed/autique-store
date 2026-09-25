@@ -604,6 +604,18 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
 });
 
 // ---------- Orders ----------
+// Customer emails per order stage: what went out, or why not.
+const EMAIL_STAGES = [['placed', 'Placed'], ['confirmed', 'Confirmed'], ['dispatched', 'Dispatched'], ['delivered', 'Delivered']];
+const EMAIL_STATE = { sent: '&#10003;', saved: '&#10003; (test outbox)', queued: 'sending…', off: 'not sent: email not set up', failed: 'failed' };
+function emailSummary(o){
+  const sent = EMAIL_STAGES.filter(([k]) => o.emails && o.emails[k]);
+  if(!sent.length) return '';
+  return `<br><span style="font-size:0.78rem;color:var(--copper-dim)">Emails: ${sent.map(([k, label]) => {
+    const e = o.emails[k];
+    return `<span title="${escapeAttr(e.error || e.at || '')}" style="${e.status === 'failed' || e.status === 'off' ? 'color:var(--danger)' : ''}">${label} ${EMAIL_STATE[e.status] || esc(e.status)}</span>`;
+  }).join(' &middot; ')}</span>`;
+}
+
 async function loadOrders(){
   const res = await fetch('/api/admin/orders');
   const data = await res.json();
@@ -626,7 +638,7 @@ async function loadOrders(){
         </div>
         <span class="tracking-msg"></span>
       </td>
-      <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}</td>
+      <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}${emailSummary(o)}${['Dispatched', 'Shipped', 'Delivered'].includes(o.status) ? `<br><a class="link-btn" href="/api/logistics/orders/${o.id}/invoice.pdf" target="_blank" rel="noopener">Invoice PDF</a>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="7" style="color:var(--copper-dim)">No orders yet.</td></tr>';
 
@@ -634,6 +646,8 @@ async function loadOrders(){
     sel.addEventListener('change', async () => {
       const id = sel.closest('tr').dataset.id;
       await fetch(`/api/admin/orders/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: sel.value }) });
+      // these statuses email the customer; refresh to show it
+      if(['Confirmed', 'Dispatched', 'Shipped', 'Delivered'].includes(sel.value)) setTimeout(loadOrders, 1200);
     });
   });
 

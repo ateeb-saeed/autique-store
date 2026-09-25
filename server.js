@@ -10,6 +10,8 @@ const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./
 const gateway = require('./lib/rapidgateway');
 const google = require('./lib/google');
 const site = require('./lib/siteConfig');
+const orderEmails = require('./lib/orderEmails');
+const mailer = require('./lib/mailer');
 const catalog = require('./lib/catalog');
 const { catalogPlan, applyCatalog, labelOf } = require('./lib/catalogImport');
 const TYPE_KEYS = catalog.TYPES.map(t => t.key);
@@ -66,6 +68,7 @@ app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) =
     console.warn(`Rapid Gateway ${type} ${eventId}: no matching order (gatewayTxnRef ${event.gatewayTxnRef}, merchantTransactionId ${event.merchantTransactionId})`);
     return res.status(200).json({ received: true });
   }
+  const previousStatus = order.status;
   order.rgEventIds = order.rgEventIds || [];
   if (eventId && order.rgEventIds.includes(eventId)) return res.status(200).json({ received: true, duplicate: true });
 
@@ -87,6 +90,7 @@ app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) =
   if (eventId) order.rgEventIds = [...order.rgEventIds, eventId].slice(-20);
   if (event.gatewayTxnRef && !order.rgPaymentId) order.rgPaymentId = event.gatewayTxnRef;
   store.saveOrders(orders);
+  orderEmails.statusChanged(order, previousStatus);
   res.status(200).json({ received: true });
 });
 
@@ -357,6 +361,7 @@ app.get('/api/settings', (req, res) => {
     saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo,
     cardPayments: gateway.configured && cfg.customers.payOnline,
     googleClientId: cfg.customers.allowGoogle ? google.clientId : '',
+    emailUpdates: mailer.mode() !== 'off',
     site: { content: cfg.content, sections: cfg.sections, customers: cfg.customers }
   });
 });
@@ -496,10 +501,14 @@ app.post('/api/orders', async (req, res) => {
     if (used) { used.usedCount = (used.usedCount || 0) + 1; store.saveCoupons(coupons); }
   }
 
-  if (paymentMethod !== 'card') return res.json({ order });
+  if (paymentMethod !== 'card') {
+    orderEmails.notify(order.id, 'placed');
+    return res.json({ order });
+  }
   try {
     // rgPaymentId is filled in from the webhook's gatewayTxnRef; BASKET_ID is our orderNumber
     const payment = await gateway.createPayment({ orderNumber: order.orderNumber, amount: order.total, phone: shipping.phone, email: order.customerEmail });
+    orderEmails.notify(order.id, 'placed');
     res.json({ checkoutUrl: payment.checkoutUrl });
   } catch (e) {
     console.error(`Rapid Gateway payment for ${order.orderNumber} could not be created:`, e.message);
@@ -1026,6 +1035,7 @@ app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
   const orders = store.getOrders();
   const order = orders.find(o => o.id === Number(req.params.id));
   if (!order) return res.status(404).json({ error: 'Order not found.' });
+  const previousStatus = order.status;
   if (req.body && req.body.status) order.status = req.body.status;
   if (req.body && req.body.trackingId !== undefined) {
     const trackingId = String(req.body.trackingId).trim();
@@ -1033,7 +1043,8 @@ app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
     order.trackingId = trackingId;
   }
   store.saveOrders(orders);
-  res.json({ order });
+  orderEmails.statusChanged(order, previousStatus);
+  res.json({ order: store.getOrders().find(o => o.id === order.id) });
 });
 
 // =========================================================
@@ -1082,6 +1093,16 @@ function findStockItem(products, key) {
   const variant = (product.variants || []).find(v => v.id === vid);
   return variant ? { product, variant, target: variant } : null;
 }
+
+// SKU shown on the invoice: the variant's or product's own SKU.
+orderEmails.setSkuLookup(item => {
+  if (item.bundleId) {
+    const bundle = store.getBundles().find(b => b.id === item.bundleId);
+    return bundle && bundle.sku ? bundle.sku : 'Bundle';
+  }
+  const found = findStockItem(store.getProducts(), stockKey(item.productId, item.variantId));
+  return found ? (found.target.sku || found.product.sku || '') : '';
+});
 
 function isOpenOrder(o) {
   return !o.dispatchedAt && !CLOSED_STATUSES.includes(o.status) && !isAwaitingCardPayment(o);
@@ -1233,12 +1254,33 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogisticsRight('dispatch')
   store.saveProducts(products);
   store.saveStockLog(log);
 
+  const previousStatus = order.status;
   order.status = 'Dispatched';
   order.dispatchedAt = at;
-  order.courier = courier || '';
-  order.trackingNumber = trackingNumber || '';
+  order.courier = String(courier || '').slice(0, 60);
+  order.trackingNumber = String(trackingNumber || '').trim().slice(0, 64);
+  // the PostEx tracking link uses trackingId; fill it from the dispatch form if the admin hasn't
+  if (!order.trackingId && order.trackingNumber) order.trackingId = order.trackingNumber;
   store.saveOrders(orders);
-  res.json({ ok: true });
+  orderEmails.statusChanged(order, previousStatus);
+  res.json({ ok: true, invoiceUrl: `/api/logistics/orders/${order.id}/invoice.pdf` });
+});
+
+// Invoice & dispatch note, printed and packed with the parcel for the courier.
+app.get('/api/logistics/orders/:id/invoice.pdf', requireLogisticsRight('viewOrders'), async (req, res) => {
+  const order = store.getOrders().find(o => o.id === Number(req.params.id));
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  try {
+    const pdf = await orderEmails.invoicePdf(order);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="Autique-invoice-${order.orderNumber}.pdf"`,
+      'Cache-Control': 'no-store'
+    }).send(pdf);
+  } catch (e) {
+    console.error(`Invoice for ${order.orderNumber} failed:`, e.message);
+    res.status(500).json({ error: 'Could not create the invoice.' });
+  }
 });
 
 app.get('/api/logistics/stock-log', requireLogisticsRight('viewHistory'), (req, res) => {

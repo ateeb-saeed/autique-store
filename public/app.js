@@ -438,7 +438,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
     return `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/login?next=/account">Sign in</a></p></div></div>`;
   }
   const heading = o.paymentMethod === 'card' && o.paymentStatus !== 'paid' ? 'Almost done' : `Thank you, ${esc(o.customerName.split(' ')[0])}`;
-  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. Keep your order number: you can follow the order any time on Track your order with it and ${esc(o.customerEmail)}.</p></div>
+  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. Keep your order number: you can follow the order any time on Track your order with it and ${esc(o.customerEmail)}.${S.settings.emailUpdates ? ` We'll email you at each step: when it's confirmed, dispatched (with your invoice) and delivered.` : ''}</p></div>
     <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap"><span class="status">${esc(o.status)}</span><span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div>
     ${paymentNote(o)}
     ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}

@@ -112,6 +112,12 @@ no prices and can't change products, coupons, sales or settings.
 - **Orders** — delivery details, items with SKUs, and the cash to collect
   for COD. **Dispatch** records the courier and tracking number and takes
   the items off the stock count; it's refused if there isn't enough stock.
+  After dispatch, **Print invoice / dispatch note** opens an A4 PDF to pack
+  with the parcel: order and tracking details, the ship-to address, the items
+  with SKUs and totals, a large "collect Rs. X cash on delivery" (or
+  "prepaid") box for the courier, a received-by signature line and the
+  returns policy. Dispatched orders keep an **Invoice** button (also in
+  admin → Orders).
 - **Stock history** — every restock and dispatch, with the running balance.
 
 ## The Autique catalogue
@@ -253,6 +259,36 @@ succeeds and **Rs. 200** fails.
 
 The API address is set in `lib/rapidgateway.js` (`RG_BASE`); the checkout
 endpoint is the sandbox one (`/sandbox/process-transaction`) until you go live.
+
+## Order emails
+
+The customer is emailed automatically at each stage, from `info@autique.pk`:
+
+| Stage | Sent when |
+|---|---|
+| Order placed | A COD order is placed, or a card order is sent to the payment page |
+| Order confirmed | The status becomes **Confirmed** (by the Rapid Gateway webhook for card orders, or the admin's status dropdown) |
+| On its way | The order is dispatched (logistics portal, or status **Dispatched** / **Shipped**). Includes the PostEx tracking link and the invoice PDF attached |
+| Delivered | The admin sets the status to **Delivered** |
+
+Each email goes at most once per order; admin → Orders shows which were
+sent. Set these environment variables (on Railway: Variables):
+
+| Variable | What it is |
+|---|---|
+| `SMTP_HOST` | Your mail provider's SMTP server, e.g. `smtp.zoho.com`, `smtp.gmail.com` (Google Workspace) or `smtp-relay.brevo.com` |
+| `SMTP_PORT` | `587` (default) or `465` |
+| `SMTP_USER` | Usually the full address, `info@autique.pk` |
+| `SMTP_PASS` | Its password or app password |
+| `MAIL_FROM` | Optional sender, default `Autique <info@autique.pk>` |
+| `MAIL_REPLY_TO` | Optional reply-to address |
+| `MAIL_OUTBOX_DIR` | For testing only: with no `SMTP_HOST`, save every email (and its PDF) to this folder instead of sending |
+
+Without `SMTP_HOST`, nothing is sent: orders work as before and the server
+log notes each email it skipped. The mailbox's domain needs SPF/DKIM set up
+at your provider, or emails may land in spam. `PUBLIC_BASE_URL` must be the
+live address, since the emails link to Track your order and show the logo
+from it.
 
 ## Taking it online
 

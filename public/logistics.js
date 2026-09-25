@@ -155,7 +155,7 @@ function renderOrders(){
       `).join('<br>')}</td>
       <td>${o.paymentMethod === 'cod' ? `COD${o.codAmount != null ? `<br><span class="sub">Collect Rs. ${o.codAmount}</span>` : ''}` : `Online<br><span class="sub">${o.paymentStatus === 'paid' ? 'Paid' : o.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment'}</span>`}</td>
       <td>${esc(o.status)}${o.dispatchedAt ? `<br><span class="sub">${fmtDate(o.dispatchedAt)}${o.courier ? `<br>${esc(o.courier)}` : ''}${o.trackingNumber ? ` &middot; ${esc(o.trackingNumber)}` : ''}</span>` : ''}</td>
-      <td>${o.open && rights.dispatch ? `<button class="btn-primary btn-small" data-dispatch="${o.id}">Dispatch</button>` : ''}</td>
+      <td>${o.open && rights.dispatch ? `<button class="btn-primary btn-small" data-dispatch="${o.id}">Dispatch</button>` : ''}${o.dispatchedAt ? `<a class="btn-secondary btn-small" href="/api/logistics/orders/${o.id}/invoice.pdf" target="_blank" rel="noopener">Invoice</a>` : ''}</td>
     </tr>
   `).join('') || `<tr><td colspan="6" class="sub">${orderFilter === 'open' ? 'Nothing waiting to be dispatched.' : 'No orders here yet.'}</td></tr>`;
 
@@ -183,6 +183,8 @@ function openDispatch(id){
     <br><br>Dispatching takes these items off the stock count.
   `;
   document.getElementById('dispatchForm').reset();
+  document.getElementById('dispatchForm').classList.remove('hidden');
+  document.getElementById('dispatchDone').classList.add('hidden');
   document.getElementById('dispatchError').innerHTML = '';
   openModal('dispatch');
 }
@@ -200,7 +202,10 @@ document.getElementById('dispatchForm').addEventListener('submit', async (e) => 
       esc(data.error) + (data.short ? '<br>' + data.short.map(esc).join('<br>') + '<br>Restock first, then dispatch.' : '');
     return;
   }
-  closeModal('dispatch');
+  // keep the modal open with the invoice to print and pack with the parcel
+  form.classList.add('hidden');
+  document.getElementById('dispatchInvoiceLink').href = data.invoiceUrl;
+  document.getElementById('dispatchDone').classList.remove('hidden');
   await Promise.all([loadOrders(), loadStock()]);
 });
 
