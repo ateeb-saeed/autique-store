@@ -51,6 +51,34 @@ let returnedOrder = null;
 
 // Site editor settings (content, visible sections, customer rules)
 const SITE = () => S.settings.site;
+// "## Heading", "### Sub", "- bullet", **bold**, blank line = new paragraph. Everything is escaped first.
+function md(text) {
+  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const out = [];
+  let list = null;
+  const flush = () => { if (list) { out.push(`<ul>${list.join('')}</ul>`); list = null; } };
+  for (const block of String(text || '').split(/\n\s*\n/)) {
+    for (const raw of block.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith('- ')) { (list = list || []).push(`<li>${inline(line.slice(2))}</li>`); continue; }
+      flush();
+      if (line.startsWith('### ')) out.push(`<h3>${inline(line.slice(4))}</h3>`);
+      else if (line.startsWith('## ')) out.push(`<h2>${inline(line.slice(3))}</h2>`);
+      else out.push(`<p>${inline(line)}</p>`);
+    }
+    flush();
+  }
+  return out.join('');
+}
+const POLICY_PAGES = { refund: 'Refund & Returns Policy', shipping: 'Shipping Policy', privacy: 'Privacy Policy', terms: 'Terms & Conditions' };
+const telHref = n => 'tel:' + String(n).replace(/[^\d+]/g, '');
+function galleryHTML(title, intro) {
+  const g = SITE().content.gallery;
+  if (!g.length) return '';
+  return `<section class="section"><div class="section-head"><div><h2>${esc(title)}</h2>${intro ? `<p>${esc(intro)}</p>` : ''}</div></div>
+    <div class="gallery-grid">${g.map(p => `<figure><a href="${esc(p.src)}" target="_blank" rel="noopener"><img src="${esc(p.src)}" alt="${esc(p.caption || 'Autique')}" loading="lazy"></a>${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div></section>`;
+}
 const paragraphs = text => String(text || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('');
 
 const imgOrIcon = src => src ? `<img src="${esc(src)}" alt="" loading="lazy">` : BOTTLE;
@@ -131,6 +159,9 @@ function renderChrome() {
     + `<div class="sep"></div>`
     + (SITE().customers.allowOrderTracking ? link('/track', 'Track your order') : '')
     + (SITE().sections.aboutPage ? link('/about', 'About us') : '')
+    + link('/how-it-works', 'How Autique works') + link('/contact', 'Contact us')
+    + `<div class="label">Policies</div>`
+    + Object.entries(POLICY_PAGES).map(([k, t]) => link('/policies/' + k, t)).join('')
     + `<div class="sep"></div>`
     + (S.user ? link('/account', 'My orders') : link('/login', 'Sign in'))
     + link('/cart', 'Shopping bag', `<span class="count">${cart.count()}</span>`)
@@ -141,12 +172,19 @@ function renderChrome() {
   $('#announce').hidden = !announcement;
   $('#acct-btn').setAttribute('href', S.user ? '#/account' : '#/login');
   cart.badge();
+  const biz = SITE().content.business;
   $('#footer').innerHTML = `<div class="container"><div class="foot">
-    <div><a class="foot-logo" href="#/"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:32ch">${esc(SITE().content.footerTagline)}</p></div>
-    <div><h4>Shop</h4>${S.categories.slice(0, 5).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}</div>
-    <div><h4>Account</h4><a href="#/account">My orders</a>${SITE().customers.allowOrderTracking ? '<a href="#/track">Track your order</a>' : ''}<a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}${isStandalone() ? '' : '<a href="#" data-act="install-app">Install the app</a>'}</div>
-    <div><h4>Help</h4>${SITE().sections.aboutPage ? '<a href="#/about">About us</a>' : ''}${SITE().content.footerHelp.map(h => `<p>${esc(h)}</p>`).join('')}</div>
-  </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} Autique. All rights reserved.</div></div>`;
+    <div><a class="foot-logo" href="#/"><img src="/icons/car-mark.png" alt="" class="foot-car"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:34ch">${esc(SITE().content.footerTagline)}</p>
+      <address class="foot-contact">
+        ${biz.email ? `<a href="mailto:${esc(biz.email)}"><b>Email:</b> ${esc(biz.email)}</a>` : ''}
+        ${biz.phone ? `<a href="${telHref(biz.phone)}"><b>Phone:</b> ${esc(biz.phone)}</a>` : ''}
+        ${biz.address ? `<p><b>Address:</b> ${esc(biz.address)}</p>` : ''}
+        ${biz.hours ? `<p><b>Hours:</b> ${esc(biz.hours)}</p>` : ''}
+      </address></div>
+    <div><h4>Shop</h4>${S.categories.slice(0, 6).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}<a href="#/shop">All products</a></div>
+    <div><h4>Customer care</h4><a href="#/how-it-works">How Autique works</a>${SITE().customers.allowOrderTracking ? '<a href="#/track">Track your order</a>' : ''}<a href="#/account">My orders</a><a href="#/contact">Contact us</a>${SITE().sections.aboutPage ? '<a href="#/about">About us</a>' : ''}${isStandalone() ? '' : '<a href="#" data-act="install-app">Install the app</a>'}${SITE().content.footerHelp.map(h => `<p>${esc(h)}</p>`).join('')}</div>
+    <div><h4>Policies</h4>${Object.entries(POLICY_PAGES).map(([k, t]) => `<a href="#/policies/${k}">${t}</a>`).join('')}</div>
+  </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} ${esc(biz.tradingName || 'Autique')}${biz.address ? ` &middot; ${esc(biz.address)}` : ''}. All rights reserved.</div></div>`;
 }
 function openMenu(open) {
   $('#drawer').classList.toggle('open', open);
@@ -202,6 +240,9 @@ routes.push([/^\/?$/, () => {
     </section>
     ${on.trustStrip && trust.length ? `<div class="trust">${trust.map((t, i) => `<div>${TRUST_ICONS()[i % 3]}<p><b>${esc(t.title)}</b><span>${esc(t.text)}</span></p></div>`).join('')}</div>` : ''}
 
+    <section class="section how-band"><div class="section-head"><div><h2>How it works</h2><p>Order in minutes. No account needed.</p></div><a class="link" href="#/how-it-works">See the full journey</a></div>
+      <ol class="how-steps">${[['Choose', 'Browse and add products to your bag'], ['Check out', 'Enter delivery details as a guest'], ['Pay', 'Cash on delivery or pay online securely'], ['Receive', 'Delivered by PostEx, with tracking']].map(([t, d], i) => `<li><span>${i + 1}</span><b>${t}</b><p>${d}</p></li>`).join('')}</ol></section>
+
     ${on.collections ? `<section class="section"><div class="section-head"><div><h2>Shop by collection</h2></div><a class="link" href="#/shop">View everything</a></div>
       <div class="tiles">${S.categories.map(cat => `<a class="tile" href="#/shop/${esc(cat.key)}"><div><h3>${esc(cat.title)}</h3><p>${esc(cat.tagline)}</p></div><span class="go">${cat.products.length} ${cat.products.length === 1 ? 'product' : 'products'} &rarr;</span></a>`).join('')}</div></section>` : ''}
 
@@ -212,6 +253,8 @@ routes.push([/^\/?$/, () => {
       <div class="bundles">${S.bundles.slice(0, 3).map(bundleHTML).join('')}</div></section>` : ''}
 
     ${on.bestsellers ? `<section class="section"><div class="section-head"><div><h2>${esc(c.bestsellersTitle)}</h2>${c.bestsellersText ? `<p>${esc(c.bestsellersText)}</p>` : ''}</div><a class="link" href="#/shop">Shop all</a></div>${gridHTML(S.products.slice(0, c.bestsellersCount))}</section>` : ''}
+
+    ${galleryHTML('Inside Autique', 'Real photos of our inventory, packaging and setup.')}
 
     ${on.brandPanel ? `<section class="section"><div class="split">
       <div class="panel"><h2>${esc(c.panelTitle)}</h2>${c.panelText ? `<p>${esc(c.panelText)}</p>` : ''}
@@ -262,18 +305,29 @@ routes.push([/^\/product\/(\d+)$/, (m, q) => {
   const sel = { v: p.hasVariants ? (p.variants.find(v => v.id === Number(q.get('v'))) || p.variants[0]) : null, qty: 1 };
   const related = S.products.filter(x => x.categoryKey === p.categoryKey && x.id !== p.id).slice(0, 4);
   const html = `<div class="container"><div class="crumbs"><a href="#/">Home</a> / <a href="#/shop">Shop</a> / <a href="#/shop/${esc(p.categoryKey)}">${esc(p.categoryTitle)}</a></div>
-    <div class="pdp"><div class="main-img" id="pdp-img"></div>
-    <div><h1>${esc(p.name)}</h1><div id="pdp-price"></div><div class="sku-line" id="pdp-sku"></div><p class="desc">${esc(p.desc)}</p><div id="pdp-opts"></div>
+    <div class="pdp"><div class="pdp-gallery"><div class="main-img" id="pdp-img"></div>${p.images.length > 1 ? `<div class="pdp-thumbs">${p.images.map((u, i) => `<button class="pdp-thumb ${i === 0 ? 'on' : ''}" data-act="pdp-img" data-i="${i}" aria-label="Photo ${i + 1} of ${p.images.length}"><img src="${esc(u)}" alt=""></button>`).join('')}</div>` : ''}</div>
+    <div><h1>${esc(p.name)}</h1><div id="pdp-price"></div><div class="sku-line" id="pdp-sku"></div>${p.brand || p.size ? `<p class="pdp-meta">${p.brand ? `<span><b>Brand:</b> ${esc(p.brand)}</span>` : ''}${p.size ? `<span><b>Size:</b> ${esc(p.size)}</span>` : ''}</p>` : ''}<p class="desc">${esc(p.desc)}</p><div id="pdp-opts"></div>
       <div class="details">
         ${p.hasVariants ? `<details open><summary>Variants and SKUs</summary><table class="vtable"><thead><tr><th>Variant</th><th>SKU</th><th>Price</th></tr></thead><tbody id="pdp-vtable"></tbody></table></details>` : ''}
-        <details ${p.hasVariants ? '' : 'open'}><summary>Details</summary><p>Collection: ${esc(p.categoryTitle)}<br>SKU: ${esc(p.sku || '—')}</p></details>
-        <details><summary>Delivery and payment</summary><p>We deliver across Pakistan. Pay cash on delivery when your order arrives.</p></details>
+        <details ${p.hasVariants ? '' : 'open'}><summary>Product details</summary>
+          <table class="vtable spec-table"><tbody>
+            ${p.brand ? `<tr><th>Brand</th><td>${esc(p.brand)}</td></tr>` : ''}
+            <tr><th>Collection</th><td>${esc(p.categoryTitle)}</td></tr>
+            ${p.size ? `<tr><th>Size</th><td>${esc(p.size)}</td></tr>` : ''}
+            <tr><th>SKU</th><td class="sku">${esc(p.sku || '—')}</td></tr>
+            <tr><th>Price</th><td>${p.hasVariants && p.variants.length > 1 ? `From ${fmt(p.price)}` : fmt(p.price)} (PKR)</td></tr>
+            ${String(p.specs || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf(':'); return i > 0 ? `<tr><th>${esc(l.slice(0, i).trim())}</th><td>${esc(l.slice(i + 1).trim())}</td></tr>` : `<tr><td colspan="2">${esc(l)}</td></tr>`; }).join('')}
+          </tbody></table></details>
+        ${p.usage ? `<details><summary>How to use</summary>${md(p.usage)}</details>` : ''}
+        <details><summary>Delivery and payment</summary><p>Delivered across Pakistan by PostEx (Call Courier), usually within 1 to 7 working days depending on your city. Pay cash on delivery${S.settings.cardPayments ? ', or pay online by card, JazzCash or Easypaisa' : ''}. <a class="link" href="#/policies/shipping">Shipping Policy</a></p></details>
+        <details><summary>Returns</summary><p>Damaged or defective? Refund or replacement within 7 days of delivery. Change of mind? Return it unused within 7 days (you pay return delivery). <a class="link" href="#/policies/refund">Refund & Returns Policy</a></p></details>
       </div></div></div>
     ${related.length ? `<section class="section"><div class="section-head"><h2>You may also like</h2></div>${gridHTML(related)}</section>` : ''}</div>`;
   const mount = root => {
     const paint = () => {
       const v = sel.v;
-      $('#pdp-img', root).innerHTML = imgOrIcon((v && v.image) || p.image);
+      $('#pdp-img', root).innerHTML = `${imgOrIcon((v && v.image) || p.images[sel.img || 0] || p.image)}`.replace('alt=""', `alt="${esc(p.name)}"`);
+      $$('.pdp-thumb', root).forEach((t, i) => t.classList.toggle('on', i === (sel.img || 0)));
       const price = v ? v.price : p.price, was = v ? v.originalPrice : p.originalPrice;
       $('#pdp-price', root).innerHTML = `<div class="price"><span>${fmt(price)}</span>${was ? `<s>${fmt(was)}</s><span class="save-tag">Save ${Math.round((1 - price / was) * 100)}%</span>` : ''}</div>`;
       $('#pdp-sku', root).textContent = `SKU: ${(v ? v.sku : p.sku) || '—'}`;
@@ -285,6 +339,7 @@ routes.push([/^\/product\/(\d+)$/, (m, q) => {
       if (vt) vt.innerHTML = p.variants.map(x => `<tr class="${x.id === v.id ? 'on' : ''}"><td>${esc(variantLabel(x))}</td><td class="sku">${esc(x.sku || '—')}</td><td>${fmt(x.price)}</td></tr>`).join('');
     };
     actions['pdp-variant'] = el => { sel.v = p.variants.find(x => x.id === Number(el.dataset.v)); sel.qty = 1; paint(); };
+    actions['pdp-img'] = el => { sel.img = Number(el.dataset.i); if (sel.v) sel.v = { ...sel.v, image: '' }; paint(); };
     actions['pdp-qty'] = el => { sel.qty = Math.max(1, sel.qty + Number(el.dataset.d)); paint(); };
     actions['pdp-add'] = () => {
       if (sel.v) cart.add('variant', `${p.id}:${sel.v.id}`, sel.qty); else cart.add('product', String(p.id), sel.qty);
@@ -336,19 +391,15 @@ const PROVINCES = ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Balochistan', 'Isla
 routes.push([/^\/checkout$/, async () => {
   const lines = cart.lines();
   if (!lines.length) return go('/cart');
-  if (!S.user) return `<div class="container"><div class="auth" style="text-align:center"><h1>Sign in to check out</h1>
-    <p class="sub">An account lets you track every order, see its status and reorder in seconds. Your bag is saved.</p>
-    <div class="box form"><a class="btn btn-primary btn-lg btn-block" href="#/login?next=/checkout">Sign in</a>
-    ${SITE().customers.allowSignup ? '<a class="btn btn-outline btn-lg btn-block" href="#/register?next=/checkout">Create an account</a>' : ''}</div></div></div>`;
   const t = await totals(lines);
-  const u = S.user;
+  const u = S.user || { name: '', email: '', phone: '', address: '', city: '', province: '' };
   const itemRows = `<div style="margin:0 0 16px">${lines.map(l => `<div class="sum-row"><span>${esc(l.name)}${l.type === 'variant' ? ` <span class="muted">(${esc(l.label)})</span>` : ''} <span class="muted">&times; ${l.qty}</span></span><span>${fmt(l.price * l.qty)}</span></div>`).join('')}</div>`;
-  return `<div class="container"><div class="page-head"><h1>Checkout</h1><p>Signed in as ${esc(u.email)}. You can track this order under My orders.</p></div>
+  return `<div class="container"><div class="page-head"><h1>Checkout</h1><p>${S.user ? `Signed in as ${esc(u.email)}. This order will be saved under My orders.` : 'No account needed. Check out as a guest, and create an account afterwards if you like. Already have one? <a class="link" href="#/login?next=/checkout">Sign in</a>'}</p></div>
   <form class="two" data-form="checkout"><div>
     <div class="box"><h3>Contact and delivery</h3><div class="form">
       <div class="row"><div class="field"><label for="c-name">Full name</label><input class="input" id="c-name" name="name" value="${esc(u.name || '')}" required autocomplete="name"></div>
       <div class="field"><label for="c-phone">Phone</label><input class="input" id="c-phone" name="phone" value="${esc(u.phone)}" required autocomplete="tel" placeholder="03xx xxxxxxx"></div></div>
-      <div class="field"><label for="c-email">Email</label><input class="input" id="c-email" type="email" name="email" value="${esc(u.email)}" readonly></div>
+      <div class="field"><label for="c-email">Email</label><input class="input" id="c-email" type="email" name="email" value="${esc(u.email)}" ${S.user ? 'readonly' : 'required autocomplete="email"'}></div>
       <div class="field"><label for="c-addr">Delivery address</label><input class="input" id="c-addr" name="address" value="${esc(u.address)}" required autocomplete="street-address" placeholder="House, street, area"></div>
       <div class="row"><div class="field"><label for="c-city">City</label><input class="input" id="c-city" name="city" value="${esc(u.city)}" required autocomplete="address-level2"></div>
       <div class="field"><label for="c-prov">Province</label><select id="c-prov" name="province"><option value="">Select</option>${PROVINCES.map(x => `<option ${x === u.province ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
@@ -366,7 +417,7 @@ routes.push([/^\/checkout$/, async () => {
 // ORDER CONFIRMATION (live status from the server; guests use the token saved at checkout)
 function paymentNote(o) {
   if (o.paymentMethod === 'cod') return `<div class="note">Please keep <b>${fmt(o.total)}</b> ready for the courier.</div>`;
-  if (o.paymentStatus === 'paid') return `<div class="note ok">Payment of <b>${fmt(o.total)}</b> received by card. Thank you!</div>`;
+  if (o.paymentStatus === 'paid') return `<div class="note ok">Payment of <b>${fmt(o.total)}</b> received online. Thank you!</div>`;
   if (o.paymentStatus === 'failed') return `<div class="note err">This payment did not go through. You can place the order again, or choose cash on delivery.</div>`;
   return `<div class="note">We are waiting for Rapid Gateway to confirm your payment of <b>${fmt(o.total)}</b>. The status here updates once it's confirmed.</div>`;
 }
@@ -378,7 +429,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
     return `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/login?next=/account">Sign in</a></p></div></div>`;
   }
   const heading = o.paymentMethod === 'card' && o.paymentStatus !== 'paid' ? 'Almost done' : `Thank you, ${esc(o.customerName.split(' ')[0])}`;
-  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. You can follow it any time under My orders or Track your order.</p></div>
+  return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. Keep your order number: you can follow the order any time on Track your order with it and ${esc(o.customerEmail)}.</p></div>
     <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap"><span class="status">${esc(o.status)}</span><span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div>
     ${paymentNote(o)}
     ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
@@ -387,6 +438,19 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
       ${o.discount ? `<div class="sum-row disc"><span>Code ${esc(o.couponCode)}</span><span>&minus;${fmt(o.discount)}</span></div>` : ''}
       <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
     <div class="box"><h3>Delivering to</h3><p>${esc(o.shipping.name)}<br>${esc(o.shipping.address)}<br>${esc(o.shipping.city)}${o.shipping.province ? ', ' + esc(o.shipping.province) : ''}<br>${esc(o.shipping.phone)}</p></div>
+    <div class="box"><h3>What happens next</h3><ol class="next-steps">
+      <li>We confirm your order and pack it, usually within 1 to 2 working days.</li>
+      <li>We hand it to PostEx (Call Courier) and add the tracking number to your order.</li>
+      <li>The courier delivers to your door${o.paymentMethod === 'cod' ? `, and you pay <b>${fmt(o.total)}</b> in cash` : ''}.</li>
+      <li>Something wrong? You have 7 days after delivery. See our <a class="link" href="#/policies/refund">Refund & Returns Policy</a>.</li>
+    </ol></div>
+    ${o.hasAccount ? '' : S.user
+      ? `<div class="box"><h3>Save this order to your account</h3><p class="muted">Add it to My orders to find it easily later.</p><div id="acct-msg"></div><button class="btn btn-primary" data-act="claim-order" data-n="${esc(o.orderNumber)}">Add to my account</button></div>`
+      : SITE().customers.allowSignup ? `<form class="box form" data-form="order-account" data-n="${esc(o.orderNumber)}"><h3>Create an account (optional)</h3>
+          <p class="muted">Choose a password to save this order and your delivery details. Your account will use ${esc(o.customerEmail)}.</p>
+          <div id="acct-msg"></div>
+          <div class="field"><label for="oa-pass">Password</label><input class="input" id="oa-pass" type="password" name="password" minlength="6" required autocomplete="new-password"><div class="hint">At least 6 characters.</div></div>
+          <div><button class="btn btn-primary" type="submit">Create account</button></div></form>` : ''}
     <p style="margin-top:26px"><a class="btn btn-outline" href="#/shop">Continue shopping</a></p></div>`;
 }]);
 
@@ -432,10 +496,60 @@ routes.push([/^\/about$/, () => {
       <h1>${esc(c.aboutTitle)}</h1>
       ${paragraphs(c.aboutStory)}
       ${c.aboutPoints.length ? `<ul class="facts">${c.aboutPoints.map(pt => `<li>${ICON.check}<span>${pt.title ? `<b>${esc(pt.title)}</b> ` : ''}${esc(pt.text)}</span></li>`).join('')}</ul>` : ''}
-      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="#/shop">Shop the collection</a>${customers.allowOrderTracking ? '<a class="btn btn-outline btn-lg" href="#/track">Track an order</a>' : ''}</p>
-    </section></div>`;
+      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="#/shop">Shop the collection</a><a class="btn btn-outline btn-lg" href="#/how-it-works">How Autique works</a></p>
+    </section>
+    ${galleryHTML('Inside Autique', 'Our inventory, packaging and setup.')}</div>`;
   const mount = () => { setTimeout(() => { const l = $('#about-logo'); if (l) l.classList.add('is-split'); }, 700); };
   return { html, mount };
+}]);
+
+// POLICIES
+routes.push([/^\/policies\/(refund|shipping|privacy|terms)$/, m => {
+  document.title = `${POLICY_PAGES[m[1]]} — Autique`;
+  return `<div class="container"><article class="doc-page">
+    <div class="page-head"><h1>${POLICY_PAGES[m[1]]}</h1></div>
+    <div class="doc">${md(SITE().content.policies[m[1]])}</div>
+    <nav class="doc-links" aria-label="Other policies">${Object.entries(POLICY_PAGES).filter(([k]) => k !== m[1]).map(([k, t]) => `<a class="pill" href="#/policies/${k}">${t}</a>`).join('')}<a class="pill" href="#/contact">Contact us</a></nav>
+  </article></div>`;
+}]);
+
+// CONTACT
+routes.push([/^\/contact$/, () => {
+  const b = SITE().content.business;
+  document.title = 'Contact us — Autique';
+  return `<div class="container"><article class="doc-page">
+    <div class="page-head"><h1>Contact us</h1><p>Questions about a product, an order, delivery or a return? We're happy to help.</p></div>
+    <div class="contact-grid">
+      ${b.email ? `<a class="contact-card" href="mailto:${esc(b.email)}"><span>Email</span><b>${esc(b.email)}</b></a>` : ''}
+      ${b.phone ? `<a class="contact-card" href="${telHref(b.phone)}"><span>Phone</span><b>${esc(b.phone)}</b></a>` : ''}
+      ${b.address ? `<div class="contact-card"><span>Business address</span><b>${esc(b.address)}</b>${b.city ? `<small>${esc(b.city)}</small>` : ''}</div>` : ''}
+      ${b.hours ? `<div class="contact-card"><span>Hours</span><b>${esc(b.hours)}</b></div>` : ''}
+    </div>
+    <div class="box" style="margin-top:22px"><h3>Business details</h3>
+      <dl class="biz-dl">
+        <div><dt>Trading name</dt><dd>${esc(b.tradingName)}</dd></div>
+        ${b.legalStructure ? `<div><dt>Legal structure</dt><dd>${esc(b.legalStructure)}</dd></div>` : ''}
+        ${b.owner ? `<div><dt>Proprietor</dt><dd>${esc(b.owner)}</dd></div>` : ''}
+        ${b.ntn ? `<div><dt>NTN</dt><dd>${esc(b.ntn)}</dd></div>` : ''}
+        ${b.address ? `<div><dt>Registered address</dt><dd>${esc(b.address)}</dd></div>` : ''}
+        ${b.website ? `<div><dt>Website</dt><dd>${esc(b.website)}</dd></div>` : ''}
+      </dl></div>
+    <p class="muted" style="margin-top:18px">Returning a product? Please read our <a class="link" href="#/policies/refund">Refund & Returns Policy</a> and include your order number when you contact us.</p>
+  </article></div>`;
+}]);
+
+// HOW AUTIQUE WORKS: business model + the complete customer journey
+routes.push([/^\/how-it-works$/, () => {
+  const c = SITE().content;
+  document.title = 'How Autique works — Autique';
+  return `<div class="container"><article class="doc-page wide">
+    <div class="page-head"><h1>How Autique works</h1><p>Our business model, how we operate, and every step from choosing a product to it arriving at your door.</p></div>
+    <div class="doc">${md(c.businessModel)}</div>
+    <h2 class="journey-title" id="journey">Your journey with Autique</h2>
+    <ol class="journey">${c.journey.map((j, i) => `<li><span class="journey-num">${i + 1}</span><div><b>${esc(j.title)}</b><p>${esc(j.text)}</p></div></li>`).join('')}</ol>
+    <div class="journey-cta"><a class="btn btn-primary btn-lg" href="#/shop">Start shopping</a>${SITE().customers.allowOrderTracking ? '<a class="btn btn-outline btn-lg" href="#/track">Track an order</a>' : ''}<a class="btn btn-outline btn-lg" href="#/policies/shipping">Shipping Policy</a><a class="btn btn-outline btn-lg" href="#/policies/refund">Refunds & Returns</a></div>
+    ${galleryHTML('Inside Autique', 'Our inventory, packaging and setup in Lahore.')}
+  </article></div>`;
 }]);
 
 // AUTH + ACCOUNT
@@ -559,6 +673,13 @@ const actions = {
   'install-app': (el, ev) => { if (ev) ev.preventDefault(); openMenu(false); showInstallHelp(); },
   'install-now': async () => { if (!installPrompt) return; installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; closeAppModal(); },
   'close-app-modal': () => closeAppModal(),
+  'claim-order': async el => {
+    el.disabled = true;
+    try {
+      const { user } = await api(`/api/orders/${encodeURIComponent(el.dataset.n)}/account`, { method: 'POST', body: { t: orderTokens.get(el.dataset.n) } });
+      S.user = user; renderChrome(); toast('Order saved to your account'); await route();
+    } catch (e) { $('#acct-msg').innerHTML = `<div class="note err">${esc(e.message)}</div>`; el.disabled = false; }
+  },
   'dismiss-pay-banner': el => {
     returnedOrder = null;
     el.closest('.pay-banner').remove();
@@ -571,6 +692,17 @@ const actions = {
 const forms = {
   search: form => { const q = $('input', form).value.trim(); $('#searchbar').classList.remove('open'); if (q) go('/shop?q=' + encodeURIComponent(q)); },
   coupon: async form => { couponCode = new FormData(form).get('code').trim(); await route(); },
+  'order-account': async form => {
+    const btn = $('button[type=submit]', form), msg = $('#acct-msg', form), n = form.dataset.n;
+    btn.disabled = true; msg.innerHTML = '';
+    try {
+      const { user } = await api(`/api/orders/${encodeURIComponent(n)}/account`, { method: 'POST', body: { t: orderTokens.get(n), password: new FormData(form).get('password') } });
+      S.user = user; renderChrome(); toast('Account created. Welcome!'); await route();
+    } catch (e) {
+      msg.innerHTML = `<div class="note err">${esc(e.message)}${e.data && e.data.signIn ? ` <a class="link" href="#/login?next=${encodeURIComponent('/order/' + n)}">Sign in</a>` : ''}</div>`;
+      btn.disabled = false;
+    }
+  },
   profile: async form => {
     const btn = $('button[type=submit]', form), msg = $('#account-msg', form);
     btn.disabled = true; msg.innerHTML = '';

@@ -81,6 +81,33 @@ function contentHTML(c){
       ${siteField('Story', 'aboutStory', c.aboutStory, { textarea: true, rows: 10, max: 6000, hint: 'Leave a blank line between paragraphs.' })}
       ${about}
     </div></div>
+    <div class="box"><h3>Business and contact details</h3><div class="form">
+      <p class="hint" style="margin-top:0">Shown in the footer, on the Contact page and in the policies. The address must match your registration documents exactly.</p>
+      ${!c.business.phone ? '<div class="note err">Add a contact number: payment providers require one in the footer.</div>' : ''}
+      <div class="row">${siteField('Email', 'business.email', c.business.email, { type: 'email' })}${siteField('Contact number', 'business.phone', c.business.phone, { attrs: 'placeholder="e.g. 0321 1234567"' })}</div>
+      ${siteField('Business address', 'business.address', c.business.address, { hint: 'Exactly as in your registration documents.' })}
+      <div class="row">${siteField('City / region (shown on Contact page)', 'business.city', c.business.city)}${siteField('Opening hours', 'business.hours', c.business.hours)}</div>
+      <div class="row">${siteField('Trading name', 'business.tradingName', c.business.tradingName)}${siteField('Legal structure', 'business.legalStructure', c.business.legalStructure)}</div>
+      <div class="row">${siteField('Proprietor', 'business.owner', c.business.owner)}${siteField('NTN', 'business.ntn', c.business.ntn, { hint: 'Shown on the Contact and Terms pages. Leave empty to hide.' })}</div>
+      ${siteField('Website', 'business.website', c.business.website)}
+    </div></div>
+    <div class="box"><h3>Photos: inventory, packaging and setup</h3>
+      <p class="hint" style="margin-top:0">Shown as "Inside Autique" on the home page, the About page and How Autique works. Upload real photos of your stock, packed orders and workspace.</p>
+      <div class="gallery-edit" id="galleryEdit">${(c.gallery || []).map((g, i) => `<figure><img src="${esc(g.src)}" alt=""><input class="input" data-gallery-caption="${i}" value="${esc(g.caption)}" placeholder="Caption, e.g. Our stock room" maxlength="120"><button type="button" class="btn btn-sm btn-danger" data-gallery-remove="${i}">Remove</button></figure>`).join('') || '<span class="hint">No photos yet.</span>'}</div>
+      <label class="btn btn-sm" style="cursor:pointer;margin-top:12px">Upload photos<input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden id="galleryUpload"></label>
+    </div>
+    <div class="box"><h3>How Autique works page</h3><div class="form">
+      ${siteField('Business model', 'businessModel', c.businessModel, { textarea: true, rows: 14, max: 12000, hint: 'Start a line with "## " for a heading and "- " for a bullet. Put **text** in double stars for bold. Leave a blank line between paragraphs.' })}
+      <p class="hint" style="margin:0">Customer journey steps (shown in order):</p>
+      ${[...Array(12).keys()].map(i => `<div class="row">${siteField(`Step ${i + 1} title`, `journey.${i}.title`, (c.journey[i] || {}).title)}${siteField(`Step ${i + 1} text`, `journey.${i}.text`, (c.journey[i] || {}).text, { max: 300 })}</div>`).join('')}
+    </div></div>
+    <div class="box"><h3>Policy pages</h3><div class="form">
+      <p class="hint" style="margin-top:0">Linked in the footer and menu. Same formatting as above.</p>
+      ${siteField('Refund & Returns Policy', 'policies.refund', c.policies.refund, { textarea: true, rows: 12, max: 20000 })}
+      ${siteField('Shipping Policy', 'policies.shipping', c.policies.shipping, { textarea: true, rows: 12, max: 20000 })}
+      ${siteField('Privacy Policy', 'policies.privacy', c.policies.privacy, { textarea: true, rows: 12, max: 20000 })}
+      ${siteField('Terms & Conditions', 'policies.terms', c.policies.terms, { textarea: true, rows: 12, max: 20000 })}
+    </div></div>
     <div class="box"><h3>Footer</h3><div class="form">
       ${siteField('Tagline under the logo', 'footerTagline', c.footerTagline, { max: 300 })}
       ${siteField('Help lines', 'footerHelp', c.footerHelp.join('\n'), { textarea: true, rows: 3, max: 700, hint: 'One per line (up to 5).' })}
@@ -122,7 +149,9 @@ function collectSiteForm(){
     document.querySelectorAll('#siteBody [data-k]').forEach(el => {
       const path = el.dataset.k.split('.');
       const v = el.value;
-      if(path.length === 3){
+      if(path[0] === 'business' || path[0] === 'policies'){
+        c[path[0]] = { ...(c[path[0]] || {}), [path[1]]: v };
+      } else if(path.length === 3){
         c[path[0]] = c[path[0]] || [];
         c[path[0]][path[1]] = { ...(c[path[0]][path[1]] || { title: '', text: '' }), [path[2]]: v };
       } else if(path[0] === 'brands'){
@@ -136,6 +165,8 @@ function collectSiteForm(){
       }
     });
     c.aboutPoints = (c.aboutPoints || []).filter(p => p && (p.title || p.text));
+    c.journey = (c.journey || []).filter(p => p && (p.title || p.text));
+    document.querySelectorAll('#siteBody [data-gallery-caption]').forEach(el => { c.gallery[Number(el.dataset.galleryCaption)].caption = el.value; });
   } else {
     document.querySelectorAll('#siteBody .switch').forEach(el => { site[el.dataset.group][el.dataset.key] = el.checked; });
   }
@@ -180,5 +211,29 @@ document.getElementById('siteEditor').addEventListener('click', async e => {
       btn.disabled = false;
     }
   }
+});
+// inventory / setup photos
+document.getElementById('siteEditor').addEventListener('change', async e => {
+  if(e.target.id !== 'galleryUpload') return;
+  collectSiteForm();
+  const g = siteData.site.content.gallery = siteData.site.content.gallery || [];
+  for(const file of e.target.files){
+    if(file.size > 5 * 1024 * 1024){ toast(`${file.name} is larger than 5 MB.`, true); continue; }
+    const fd = new FormData();
+    fd.append('image', file);
+    const res = await fetch('/api/admin/upload-image', { method:'POST', body: fd });
+    const data = await res.json();
+    if(res.ok) g.push({ src: data.url, caption: '' }); else toast(data.error || 'Upload failed.', true);
+  }
+  siteDirty = true;
+  renderSiteEditor();
+});
+document.getElementById('siteEditor').addEventListener('click', e => {
+  const rm = e.target.closest('[data-gallery-remove]');
+  if(!rm) return;
+  collectSiteForm();
+  siteData.site.content.gallery.splice(Number(rm.dataset.galleryRemove), 1);
+  siteDirty = true;
+  renderSiteEditor();
 });
 window.addEventListener('beforeunload', e => { if(siteDirty){ e.preventDefault(); e.returnValue = ''; } });

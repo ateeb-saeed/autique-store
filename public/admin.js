@@ -203,7 +203,13 @@ function openProductEditor(id){
         <div class="field"><label for="pf-cat">Category</label><select id="pf-cat" name="categoryKey">${categories.map(c => `<option value="${esc(c.key)}" ${c.key === p.categoryKey ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}</select></div>
         <div class="field"><label for="pf-price">Price (Rs.)</label><input class="input" id="pf-price" name="price" type="number" min="0" value="${esc(p.price)}" required><div class="hint">The default price. A variant can override it below.</div></div>
       </div>
-      <div class="field"><label for="pf-desc">Description</label><textarea class="input" id="pf-desc" name="desc" rows="4">${esc(p.desc)}</textarea></div>
+      <div class="field"><label for="pf-desc">Description</label><textarea class="input" id="pf-desc" name="desc" rows="4" maxlength="3000">${esc(p.desc)}</textarea><div class="hint">What it is, what it does and what it's for. Shown on the product page.</div></div>
+      <div class="row">
+        <div class="field"><label for="pf-brand">Brand</label><input class="input" id="pf-brand" name="brand" value="${esc(p.brand || '')}" maxlength="60" placeholder="e.g. Gladiator"></div>
+        <div class="field"><label for="pf-size">Size / volume</label><input class="input" id="pf-size" name="size" value="${esc(p.size || '')}" maxlength="60" placeholder="e.g. 500 ml, 1 piece, fits sedans"></div>
+      </div>
+      <div class="field"><label for="pf-usage">How to use</label><textarea class="input" id="pf-usage" name="usage" rows="4" maxlength="3000" placeholder="- Shake well&#10;- Apply to a clean, dry surface">${esc(p.usage || '')}</textarea><div class="hint">Optional. Start a line with "- " to make a bullet point.</div></div>
+      <div class="field"><label for="pf-specs">Specifications</label><textarea class="input" id="pf-specs" name="specs" rows="4" maxlength="3000" placeholder="Material: Microfiber&#10;Made in: Pakistan&#10;Colour: Black">${esc(p.specs || '')}</textarea><div class="hint">Optional. One per line as "Name: value". Shown as a table on the product page.</div></div>
       <div class="row">
         <div class="field"><label for="pf-sku">SKU</label><input class="input" id="pf-sku" name="sku" value="${esc(p.sku)}"><div class="hint">Leave blank to create one automatically.</div></div>
         <div class="field" id="pf-simple"><label for="pf-stock">Stock</label><input class="input" id="pf-stock" name="stock" type="number" min="0" value="${p.stock || 0}"><div class="hint">Units on hand. With sizes or colours, set stock per row below instead.</div></div>
@@ -216,7 +222,7 @@ function openProductEditor(id){
         <input class="input" id="pf-url" placeholder="or paste an image link" style="width:auto;flex:1;min-width:200px;border-radius:999px;padding:9px 16px">
         <button class="btn btn-sm" type="button" id="pf-add-url">Add link</button>
       </div>
-      <p class="hint">The first photo is the main one shown in the shop.</p></div>
+      <p class="hint">The first photo is the main one shown in the shop. Use clear, real photos of the actual product (front, back/label and packaging). Customers can flip through all of them.</p></div>
     <div class="box"><h3>Sizes, colours and stock</h3>
       <div class="note">Each row is one buyable option with its own SKU and stock. Use quick add to create every colour and size combination at once. Leave this empty for a product with no options.</div>
       <div class="form" style="margin-bottom:14px">
@@ -283,7 +289,8 @@ editor.addEventListener('submit', async e => {
   });
   const body = {
     name: f.name.value, categoryKey: f.categoryKey.value, price: f.price.value, desc: f.desc.value,
-    sku: f.sku.value, stock: f.stock.value, active: f.active.checked, images: editorImages, variants
+    sku: f.sku.value, stock: f.stock.value, active: f.active.checked, images: editorImages, variants,
+    brand: f.brand.value, size: f.size.value, usage: f.usage.value, specs: f.specs.value
   };
   const id = f.dataset.id;
   const btn = f.querySelector('button[type=submit]');

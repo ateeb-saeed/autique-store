@@ -158,6 +158,10 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 .save-bar{ position:sticky; bottom:0; z-index:5; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 18px; margin-top:8px; background:var(--white); border:1.5px solid var(--border); border-radius:var(--r-lg); box-shadow:0 -6px 20px rgba(15,27,43,0.08); }
 .btn[disabled]{ opacity:.5; cursor:not-allowed; }
 
+.gallery-edit{ display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+.gallery-edit figure{ margin:0; display:grid; gap:8px; }
+.gallery-edit img{ width:100%; aspect-ratio:4 / 3; object-fit:cover; border-radius:12px; border:1.5px solid var(--border); }
+
 /* ---------- Tables ---------- */
 .tbl-wrap, .table-wrap{ width:100%; overflow-x:auto; }
 .tbl-wrap{ border:1.5px solid var(--border); border-radius:var(--r-lg); }

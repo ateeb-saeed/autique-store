@@ -319,6 +319,8 @@ app.get('/api/products', (req, res) => {
             sku: p.sku || '',
             desc: p.desc,
             image: p.image || '',
+            images: (p.images && p.images.length ? p.images : (p.image ? [p.image] : [])),
+            brand: p.brand || '', size: p.size || '', usage: p.usage || '', specs: p.specs || '',
             hasVariants: true,
             variants,
             price: cheapest.price,
@@ -332,6 +334,8 @@ app.get('/api/products', (req, res) => {
           sku: p.sku || '',
           desc: p.desc,
           image: p.image || '',
+          images: (p.images && p.images.length ? p.images : (p.image ? [p.image] : [])),
+          brand: p.brand || '', size: p.size || '', usage: p.usage || '', specs: p.specs || '',
           hasVariants: false,
           price,
           originalPrice: price !== p.price ? p.price : null
@@ -381,8 +385,9 @@ app.post('/api/coupons/validate', (req, res) => {
 // =========================================================
 // Orders (checkout)
 // =========================================================
-// Customers must be signed in to order, so every order can be tracked.
-app.post('/api/orders', requireCustomer, async (req, res) => {
+// Anyone can check out, signed in or not. Guests give an email; they can create
+// an account afterwards from the confirmation page (see /api/orders/:n/account).
+app.post('/api/orders', async (req, res) => {
   const { items, variants: variantItems, bundles: bundleItems, couponCode, paymentMethod, shipping } = req.body || {};
   const hasItems = Array.isArray(items) && items.length > 0;
   const hasVariants = Array.isArray(variantItems) && variantItems.length > 0;
@@ -396,9 +401,9 @@ app.post('/api/orders', requireCustomer, async (req, res) => {
   if (!shipping || !shipping.name || !shipping.phone || !shipping.address || !shipping.city) {
     return res.status(400).json({ error: 'Please fill in your delivery details.' });
   }
-  const user = store.getUsers().find(u => u.id === req.session.userId);
-  if (!user) return res.status(401).json({ error: 'Sign in required.' });
-  const email = user.email;
+  const user = req.session.userId ? store.getUsers().find(u => u.id === req.session.userId) : null;
+  const email = user ? user.email : String(shipping.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return res.status(400).json({ error: 'Please enter a valid email address, so we can contact you about your order.' });
   const phoneE164 = paymentMethod === 'card' ? gateway.toE164PK(shipping.phone) : null;
   if (paymentMethod === 'card') {
     if (!gateway.configured) return res.status(503).json({ error: 'Card payments are not available right now. Please choose cash on delivery.' });
@@ -460,7 +465,7 @@ app.post('/api/orders', requireCustomer, async (req, res) => {
   const order = {
     id: store.nextId(orders),
     orderNumber: `AUT-${1000 + store.nextId(orders)}`,
-    userId: user.id,
+    userId: user ? user.id : null,
     customerName: shipping.name,
     customerEmail: email,
     items: lineItems,
@@ -523,7 +528,7 @@ function publicOrder(o) {
     paymentMethod: o.paymentMethod, paymentStatus: paymentState(o),
     status: o.status, createdAt: o.createdAt, shipping: o.shipping,
     dispatchedAt: o.dispatchedAt || null, courier: o.courier || '', trackingNumber: o.trackingNumber || '',
-    trackingId: o.trackingId || ''
+    trackingId: o.trackingId || '', hasAccount: !!o.userId
   };
 }
 
@@ -548,6 +553,42 @@ function findOrderForViewer(req, orderNumber, token) {
     crypto.timingSafeEqual(Buffer.from(token), Buffer.from(o.accessToken));
   return owner || tokenOk ? o : null;
 }
+
+// Create an account from a guest order's confirmation page, or add the order to
+// the signed-in account. The order's access token proves it's the customer's.
+app.post('/api/orders/:orderNumber/account', (req, res) => {
+  const b = req.body || {};
+  const found = findOrderForViewer(req, req.params.orderNumber, String(b.t || ''));
+  if (!found) return res.status(404).json({ error: 'Order not found.' });
+  if (found.userId) return res.status(400).json({ error: 'This order is already saved to an account.' });
+
+  const users = store.getUsers();
+  let user = req.session.userId ? users.find(u => u.id === req.session.userId) : null;
+  if (user) {
+    if (user.email !== found.customerEmail) return res.status(400).json({ error: `This order was placed with ${found.customerEmail}. Sign in with that email to save it.` });
+  } else {
+    if (!site.get().customers.allowSignup) return res.status(403).json({ error: 'New sign-ups are closed right now.' });
+    if (users.some(u => u.email === found.customerEmail)) {
+      return res.status(409).json({ error: `An account for ${found.customerEmail} already exists. Sign in to see this order under My orders.`, signIn: true });
+    }
+    const password = String(b.password || '');
+    if (password.length < 6 || password.length > 200) return res.status(400).json({ error: 'Choose a password of at least 6 characters.' });
+    const sh = found.shipping || {};
+    user = {
+      id: store.nextId(users), name: String(found.customerName).trim(), email: found.customerEmail,
+      password_hash: bcrypt.hashSync(password, 10),
+      phone: sh.phone || '', address: sh.address || '', city: sh.city || '', province: sh.province || '',
+      created_at: new Date().toISOString()
+    };
+    users.push(user);
+    store.saveUsers(users);
+    req.session.userId = user.id;
+  }
+  const orders = store.getOrders();
+  orders.find(o => o.id === found.id).userId = user.id;
+  store.saveOrders(orders);
+  res.json({ user: publicUser(user) });
+});
 
 app.get('/api/order-status/:orderNumber', (req, res) => {
   const o = findOrderForViewer(req, req.params.orderNumber, String(req.query.t || ''));
@@ -625,7 +666,11 @@ function applyProductForm(product, body, products) {
   product.name = name;
   product.price = price;
   product.categoryKey = body.categoryKey;
-  product.desc = String(body.desc || '');
+  product.desc = String(body.desc || '').slice(0, 3000);
+  product.brand = String(body.brand || '').trim().slice(0, 60);
+  product.size = String(body.size || '').trim().slice(0, 60);
+  product.usage = String(body.usage || '').slice(0, 3000);
+  product.specs = String(body.specs || '').slice(0, 3000);
   product.active = body.active !== false;
   product.sku = String(body.sku || '').trim() || product.sku || store.autoSku(name, product.id);
   const images = (Array.isArray(body.images) ? body.images : []).filter(u => typeof u === 'string' && u.trim()).slice(0, 12);

@@ -114,6 +114,27 @@ no prices and can't change products, coupons, sales or settings.
   the items off the stock count; it's refused if there isn't enough stock.
 - **Stock history** — every restock and dispatch, with the running balance.
 
+## Business pages (for payment-provider verification)
+
+Written from the business case document and editable in admin → Site editor →
+Content:
+
+- **Footer:** email, contact number, business address (exactly as registered:
+  "82-A Revenue Society Lahore"), hours, and links to every policy.
+- **Policies:** Refund & Returns, Shipping, Privacy, Terms & Conditions
+  (`#/policies/refund`, `shipping`, `privacy`, `terms`).
+- **Contact us** (`#/contact`): contact cards and business details (trading
+  name, sole proprietorship, proprietor, NTN, registered address).
+- **How Autique works** (`#/how-it-works`): the business model, operations,
+  and the full customer journey step by step.
+- **Inside Autique** photo gallery (home, About, How it works): upload real
+  photos of inventory, packaging and the business setup in the Site editor.
+- **Product pages:** photo gallery, brand, size, description, how to use,
+  specifications, SKU, price, delivery and returns. Fill these in for each
+  product in admin → Products.
+
+The CNIC from the business document is deliberately not shown anywhere.
+
 ## Sign in with Google
 
 The sign-up and sign-in pages show a **Continue with Google** button when
@@ -157,9 +178,11 @@ details. The old `/admin.html` and `/logistics.html` links redirect.
 
 ## What checkout looks like for a customer
 
-Customers need an account to order, so every order can be tracked. Anyone
-can also use **Track your order** (in the menu) with their order number and
-the email on their account. The **About us** page tells the Autique story.
+Customers can **check out as a guest** — no account needed. After ordering,
+the confirmation page offers an optional account (just a password) that saves
+the order and their delivery details; if they're already signed in, they can
+add the order to their account. Anyone can use **Track your order** with the
+order number and the email used at checkout.
 
 1. Add products and/or bundles to the bag.
 2. Optionally enter a discount code in the bag.
