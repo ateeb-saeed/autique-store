@@ -158,6 +158,12 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 .badge.off{ border-color:var(--danger); color:var(--danger); }
 .badge.low{ border-color:var(--warn); color:var(--warn); }
 .badge.neutral{ border-color:var(--line); color:var(--ink-2); }
+.tracking-row{ display:flex; gap:6px; margin-top:8px; }
+.tracking-input{ width:130px; background:var(--white); border:1.5px solid var(--border); color:var(--ink); padding:6px 9px; border-radius:var(--r-sm); font-size:0.82rem; }
+.tracking-row .icon-btn{ margin-right:0; }
+.tracking-msg{ display:block; font-size:0.76rem; min-height:1em; margin-top:3px; }
+.tracking-msg.ok{ color:var(--success); }
+.tracking-msg.err{ color:var(--danger); }
 .status-select{ background:var(--white); border:1.5px solid var(--border); color:var(--ink); padding:6px 8px; border-radius:var(--r-sm); font-size:0.82rem; }
 .hint-text{ color:var(--ink-2); font-size:0.84rem; line-height:1.6; margin:0 0 12px; }
 .hint-text code{ background:var(--tint); padding:1px 5px; border-radius:4px; color:var(--ink); }

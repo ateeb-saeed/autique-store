@@ -576,6 +576,11 @@ async function loadOrders(){
         <select class="status-select">
           ${statuses.map(s => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
         </select>
+        <div class="tracking-row">
+          <input class="tracking-input" value="${escapeAttr(o.trackingId || '')}" placeholder="Tracking ID" aria-label="Tracking ID for ${o.orderNumber}" maxlength="64">
+          <button class="icon-btn tracking-save">Save</button>
+        </div>
+        <span class="tracking-msg"></span>
       </td>
       <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}</td>
     </tr>
@@ -585,6 +590,19 @@ async function loadOrders(){
     sel.addEventListener('change', async () => {
       const id = sel.closest('tr').dataset.id;
       await fetch(`/api/admin/orders/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: sel.value }) });
+    });
+  });
+
+  tbody.querySelectorAll('.tracking-save').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const cell = btn.closest('td');
+      const id = btn.closest('tr').dataset.id;
+      const msg = cell.querySelector('.tracking-msg');
+      const res = await fetch(`/api/admin/orders/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ trackingId: cell.querySelector('.tracking-input').value }) });
+      const data = await res.json();
+      msg.textContent = res.ok ? 'Saved' : data.error;
+      msg.className = 'tracking-msg ' + (res.ok ? 'ok' : 'err');
+      setTimeout(() => { msg.textContent = ''; }, 2500);
     });
   });
 }

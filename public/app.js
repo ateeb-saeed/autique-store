@@ -373,6 +373,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
   return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. You can follow it any time under My orders or Track your order.</p></div>
     <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap"><span class="status">${esc(o.status)}</span><span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div>
     ${paymentNote(o)}
+    ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
     <div class="box"><h3>Items</h3>${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
       <div class="sum-row" style="margin-top:10px;border-top:1px solid var(--line);padding-top:14px"><span>Subtotal</span><span>${fmt(o.subtotal)}</span></div>
       ${o.discount ? `<div class="sum-row disc"><span>Code ${esc(o.couponCode)}</span><span>&minus;${fmt(o.discount)}</span></div>` : ''}
@@ -395,6 +396,7 @@ function trackResultHTML(o) {
   return `<div class="box track-result"><div class="order-top"><div><h3 style="margin:0">Order ${esc(o.orderNumber)}</h3><div class="muted small">Placed ${fdate(o.createdAt)}</div></div>
       <div><span class="status ${cancelled ? 'bad' : ''}">${esc(o.status)}</span> <span class="status ${o.paymentStatus === 'failed' ? 'bad' : ''}">${PAY_LABEL[o.paymentStatus] || ''}</span></div></div>
     ${cancelled ? '<div class="note err" style="margin-top:18px">This order was cancelled.</div>' : `<ol class="steps">${STEPS.map((l, i) => `<li class="${i <= step ? 'done' : ''} ${i === step ? 'now' : ''}"><span class="dot"></span><span>${l}</span></li>`).join('')}</ol>`}
+    ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
     ${o.dispatchedAt ? `<p class="muted">Dispatched ${fdate(o.dispatchedAt)}${o.courier ? ` with <b>${esc(o.courier)}</b>` : ''}${o.trackingNumber ? `, tracking number <b>${esc(o.trackingNumber)}</b>` : ''}.</p>` : ''}
     <div style="margin-top:16px">${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
     <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
@@ -452,6 +454,7 @@ routes.push([/^\/account$/, async () => {
   const { orders } = await api('/api/my-orders');
   const body = orders.length ? orders.map(o => `<div class="order-card"><div class="order-top"><div><b>${esc(o.orderNumber)}</b> <span class="muted small">&middot; ${fdate(o.createdAt)}</span></div><span class="status ${o.status === 'Cancelled' ? 'bad' : ''}">${esc(o.status)}</span></div>
       <div class="order-lines">${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}</div>
+      ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
       <a class="link small" style="display:inline-block;margin-top:10px" href="#/track?n=${esc(o.orderNumber)}">Track this order</a>
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
       <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>

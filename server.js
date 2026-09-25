@@ -366,6 +366,7 @@ app.post('/api/orders', requireCustomer, async (req, res) => {
       province: String(shipping.province || ''), notes: String(shipping.notes || '')
     },
     status: paymentMethod === 'cod' ? 'Pending (COD)' : 'Awaiting payment',
+    trackingId: '',
     createdAt: new Date().toISOString()
   };
   orders.push(order);
@@ -411,7 +412,8 @@ function publicOrder(o) {
     subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
     paymentMethod: o.paymentMethod, paymentStatus: paymentState(o),
     status: o.status, createdAt: o.createdAt, shipping: o.shipping,
-    dispatchedAt: o.dispatchedAt || null, courier: o.courier || '', trackingNumber: o.trackingNumber || ''
+    dispatchedAt: o.dispatchedAt || null, courier: o.courier || '', trackingNumber: o.trackingNumber || '',
+    trackingId: o.trackingId || ''
   };
 }
 
@@ -451,7 +453,7 @@ app.get('/api/my-orders', requireCustomer, (req, res) => {
       subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
       paymentMethod: o.paymentMethod, paymentStatus: paymentState(o),
       status: o.status, createdAt: o.createdAt,
-      courier: o.courier || '', trackingNumber: o.trackingNumber || ''
+      courier: o.courier || '', trackingNumber: o.trackingNumber || '', trackingId: o.trackingId || ''
     }));
   res.json({ orders });
 });
@@ -833,6 +835,11 @@ app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
   const order = orders.find(o => o.id === Number(req.params.id));
   if (!order) return res.status(404).json({ error: 'Order not found.' });
   if (req.body && req.body.status) order.status = req.body.status;
+  if (req.body && req.body.trackingId !== undefined) {
+    const trackingId = String(req.body.trackingId).trim();
+    if (trackingId.length > 64) return res.status(400).json({ error: 'Tracking ID is too long.' });
+    order.trackingId = trackingId;
+  }
   store.saveOrders(orders);
   res.json({ order });
 });
