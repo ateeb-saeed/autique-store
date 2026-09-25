@@ -6,15 +6,22 @@
 <title>Autique Logistics</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
-<link rel="icon" href="logo.png">
-<link rel="stylesheet" href="admin.css?v=4">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/logistics-favicon-32.png">
+<link rel="manifest" href="/manifest-logistics.webmanifest">
+<link rel="apple-touch-icon" href="/icons/logistics-apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff">
+<meta name="application-name" content="autique logistics">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="autique logistics">
+<link rel="stylesheet" href="/admin.css?v=15">
 </head>
 <body>
 
 <!-- Login -->
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
-    <div class="login-logo"><img src="logo.png" alt="autique."></div>
+    <div class="login-logo"><img src="/logo.png" alt="autique."></div>
     <h1>Logistics</h1>
     <p class="login-sub">Sign in to manage stock and dispatch.</p>
     <form id="loginForm">
@@ -24,20 +31,21 @@
       <p class="error-text" id="loginError"></p>
       <button type="submit" class="btn-primary">Sign in</button>
     </form>
-    <a href="index.html" class="back-link">&larr; Back to storefront</a>
+    <a href="/" class="back-link">&larr; Back to storefront</a>
   </div>
 </div>
 
 <!-- Portal -->
 <div class="admin-shell hidden" id="portalShell">
   <aside class="sidebar">
-    <div class="sidebar-brand"><img src="logo.png" alt="autique."><span>Logistics</span></div>
+    <div class="sidebar-brand"><img src="/logo.png" alt="autique."><span>Logistics</span></div>
     <nav>
       <button class="nav-btn active" data-tab="stock">Stock</button>
       <button class="nav-btn" data-tab="orders">Orders <span class="nav-count hidden" id="openOrdersCount"></span></button>
       <button class="nav-btn" data-tab="history">Stock history</button>
     </nav>
     <div class="sidebar-foot">
+      <a href="#" data-install-app>Install the logistics app</a>
       <button id="logoutBtn">Sign out</button>
     </div>
   </aside>
@@ -128,6 +136,7 @@
   </form>
 </div>
 
-<script src="logistics.js?v=13"></script>
+<script src="/logistics.js?v=15"></script>
+<script src="/portal-app.js?v=15" data-app-name="autique logistics" data-icon="/icons/logistics-192.png" data-sw="/logistics/sw.js"></script>
 </body>
 </html>

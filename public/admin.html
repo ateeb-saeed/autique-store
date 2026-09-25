@@ -6,15 +6,22 @@
 <title>Autique Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
-<link rel="icon" href="logo.png">
-<link rel="stylesheet" href="admin.css?v=13">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/admin-favicon-32.png">
+<link rel="manifest" href="/manifest-admin.webmanifest">
+<link rel="apple-touch-icon" href="/icons/admin-apple-touch-icon.png">
+<meta name="theme-color" content="#c8601c">
+<meta name="application-name" content="autique admin">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="autique admin">
+<link rel="stylesheet" href="/admin.css?v=15">
 </head>
 <body>
 
 <!-- Admin login -->
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
-    <div class="login-logo"><img src="logo.png" alt="autique."></div>
+    <div class="login-logo"><img src="/logo.png" alt="autique."></div>
     <h1>Admin</h1>
     <p class="login-sub">Sign in to manage the store.</p>
     <form id="loginForm">
@@ -24,14 +31,14 @@
       <p class="error-text" id="loginError"></p>
       <button type="submit" class="btn-primary">Sign in</button>
     </form>
-    <a href="index.html" class="back-link">&larr; Back to storefront</a>
+    <a href="/" class="back-link">&larr; Back to storefront</a>
   </div>
 </div>
 
 <!-- Admin dashboard -->
 <div class="admin-shell hidden" id="adminShell">
   <aside class="sidebar">
-    <div class="sidebar-brand"><img src="logo.png" alt="autique."><span>Admin</span></div>
+    <div class="sidebar-brand"><img src="/logo.png" alt="autique."><span>Admin</span></div>
     <nav>
       <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
       <button class="nav-btn" data-tab="products">Products</button>
@@ -44,8 +51,9 @@
       <button class="nav-btn" data-tab="settings">Admin settings</button>
     </nav>
     <div class="sidebar-foot">
-      <a href="index.html">View storefront</a>
-      <a href="logistics.html">Logistics portal</a>
+      <a href="/">View storefront</a>
+      <a href="/logistics/">Logistics portal</a>
+      <a href="#" data-install-app>Install the admin app</a>
       <button id="adminLogoutBtn">Sign out</button>
     </div>
   </aside>
@@ -108,7 +116,7 @@
         <article class="dash-card span-2">
           <div class="dash-card-head">
             <h3>Stock needing attention</h3>
-            <a class="link-btn" href="logistics.html">Open logistics &rarr;</a>
+            <a class="link-btn" href="/logistics/">Open logistics &rarr;</a>
           </div>
           <div id="dashStock"></div>
         </article>
@@ -253,7 +261,7 @@
     <section class="tab-panel hidden" id="tab-site">
       <div class="panel-head">
         <h2>Site editor</h2>
-        <div class="panel-head-actions"><a class="btn btn-sm" href="/" target="_blank" rel="noopener">View store</a><a class="btn btn-sm" href="logistics.html" target="_blank" rel="noopener">View logistics portal</a></div>
+        <div class="panel-head-actions"><a class="btn btn-sm" href="/" target="_blank" rel="noopener">View store</a><a class="btn btn-sm" href="/logistics/" target="_blank" rel="noopener">View logistics portal</a></div>
       </div>
       <div id="siteEditor"></div>
     </section>
@@ -274,7 +282,7 @@
       </form>
 
       <form class="settings-form" id="logisticsPasswordForm" style="margin-top:24px">
-        <p class="hint-text" style="margin:0">Logistics portal password &mdash; for the stock person at <a href="logistics.html">logistics.html</a>. They can view stock, restock and dispatch orders, but can't see prices or change anything else.</p>
+        <p class="hint-text" style="margin:0">Logistics portal password &mdash; for the stock person at <a href="/logistics/">/logistics/</a>. They can view stock, restock and dispatch orders, but can't see prices or change anything else.</p>
         <label>New logistics password
           <input type="password" name="newPassword" required minlength="6" autocomplete="new-password">
         </label>
@@ -309,8 +317,9 @@
   </form>
 </div>
 
-<script src="admin.js?v=13"></script>
-<script src="admin-dashboard.js?v=13"></script>
-<script src="admin-site.js?v=13"></script>
+<script src="/admin.js?v=15"></script>
+<script src="/admin-dashboard.js?v=15"></script>
+<script src="/admin-site.js?v=15"></script>
+<script src="/portal-app.js?v=15" data-app-name="autique admin" data-icon="/icons/admin-192.png" data-sw="/admin/sw.js"></script>
 </body>
 </html>

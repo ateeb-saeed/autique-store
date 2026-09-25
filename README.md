@@ -30,7 +30,8 @@ npm start
 Then open:
 
 - **Storefront:** http://localhost:3000
-- **Admin panel:** http://localhost:3000/admin.html
+- **Admin panel:** http://localhost:3000/admin/
+- **Logistics portal:** http://localhost:3000/logistics/
 
 The first time you start the server, it prints a default admin password
 in the terminal — something like:
@@ -101,7 +102,7 @@ defaults for this section" brings back the original settings (after Save).
 ## Logistics portal
 
 A separate sign-in for the stock person at
-http://localhost:3000/logistics.html (default password `autique-logistics`,
+http://localhost:3000/logistics/ (default password `autique-logistics`,
 printed on first run; the admin can change it under Admin settings). It shows
 no prices and can't change products, coupons, sales or settings.
 
@@ -127,6 +128,32 @@ Create credentials → OAuth client ID → Web application. Under **Authorized
 JavaScript origins** add `http://localhost:3000` and your live address (e.g.
 `https://autique.pk`). No redirect URI is needed. Copy the client id into
 `GOOGLE_CLIENT_ID`.
+
+## Install as an app (Windows, Android, iPhone)
+
+The storefront is an installable web app called **autique.**, with the copper
+car as its icon (`public/manifest.webmanifest`, icons in `public/icons/`).
+Customers install it from the menu ("Install the autique. app"), which shows
+the steps for their device:
+
+- **Windows / Mac:** Chrome or Edge → install icon in the address bar.
+- **Android:** Chrome → ⋮ menu → Install app.
+- **iPhone / iPad:** Safari → Share → Add to Home Screen.
+
+It needs the live site on **HTTPS** (Railway provides this); on your laptop
+it also works at `http://localhost`. `public/sw.js` keeps the app quick and
+shows the last home page when offline; it never caches the API, admin,
+logistics or payments. If you change `sw.js`, bump `CACHE` in it.
+
+To list it in the Microsoft Store, Google Play or the App Store, feed the
+live URL to pwabuilder.com, which packages this same web app for each store.
+
+The admin and logistics portals are **separate apps**: **autique admin**
+(`/admin/`, navy car on copper) and **autique logistics** (`/logistics/`,
+copper car on white). Each has its own manifest, icon and "Install the …
+app" link in its sidebar, and installs as its own entry on the phone or PC.
+They never cache anything, because they show live orders, stock and customer
+details. The old `/admin.html` and `/logistics.html` links redirect.
 
 ## What checkout looks like for a customer
 

@@ -88,6 +88,22 @@ app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) =
 });
 
 app.use(express.json());
+// Admin and logistics each live under their own path, so each installs as a
+// separate app ("autique admin", "autique logistics"). Old links redirect.
+const PORTALS = { admin: 'admin.html', logistics: 'logistics.html' };
+for (const [name, file] of Object.entries(PORTALS)) {
+  app.get(`/${file}`, (req, res) => res.redirect(301, `/${name}/`));
+  // Express treats /admin and /admin/ as the same route, so tell them apart here:
+  // the app's scope needs the trailing slash.
+  app.get(`/${name}`, (req, res) => {
+    if (!req.path.endsWith('/')) return res.redirect(301, `/${name}/`);
+    res.sendFile(path.join(__dirname, 'public', file));
+  });
+  app.get(`/${name}/sw.js`, (req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, 'public', 'portal-sw.js'));
+  });
+}
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(session({
@@ -1285,6 +1301,6 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Autique store running at http://localhost:${PORT}`);
-  console.log(`Admin panel at http://localhost:${PORT}/admin.html`);
-  console.log(`Logistics portal at http://localhost:${PORT}/logistics.html`);
+  console.log(`Admin panel at http://localhost:${PORT}/admin/`);
+  console.log(`Logistics portal at http://localhost:${PORT}/logistics/`);
 });

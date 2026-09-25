@@ -134,7 +134,8 @@ function renderChrome() {
     + `<div class="sep"></div>`
     + (S.user ? link('/account', 'My orders') : link('/login', 'Sign in'))
     + link('/cart', 'Shopping bag', `<span class="count">${cart.count()}</span>`)
-    + (S.user ? '<button data-act="logout">Sign out</button>' : '');
+    + (S.user ? '<button data-act="logout">Sign out</button>' : '')
+    + (isStandalone() ? '' : '<div class="sep"></div><button data-act="install-app">Install the autique. app</button>');
   const announcement = S.settings.saleActive && S.settings.saleLabel ? S.settings.saleLabel : SITE().content.announcement;
   $('#announce').textContent = announcement;
   $('#announce').hidden = !announcement;
@@ -143,7 +144,7 @@ function renderChrome() {
   $('#footer').innerHTML = `<div class="container"><div class="foot">
     <div><a class="foot-logo" href="#/"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:32ch">${esc(SITE().content.footerTagline)}</p></div>
     <div><h4>Shop</h4>${S.categories.slice(0, 5).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}</div>
-    <div><h4>Account</h4><a href="#/account">My orders</a>${SITE().customers.allowOrderTracking ? '<a href="#/track">Track your order</a>' : ''}<a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}</div>
+    <div><h4>Account</h4><a href="#/account">My orders</a>${SITE().customers.allowOrderTracking ? '<a href="#/track">Track your order</a>' : ''}<a href="#/cart">Shopping bag</a>${S.user ? '' : '<a href="#/login">Sign in</a>'}${isStandalone() ? '' : '<a href="#" data-act="install-app">Install the app</a>'}</div>
     <div><h4>Help</h4>${SITE().sections.aboutPage ? '<a href="#/about">About us</a>' : ''}${SITE().content.footerHelp.map(h => `<p>${esc(h)}</p>`).join('')}</div>
   </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} Autique. All rights reserved.</div></div>`;
 }
@@ -555,6 +556,9 @@ const actions = {
     if (q < 1) return;
     cart.set(el.dataset.type, el.dataset.key, q); await route();
   },
+  'install-app': (el, ev) => { if (ev) ev.preventDefault(); openMenu(false); showInstallHelp(); },
+  'install-now': async () => { if (!installPrompt) return; installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; closeAppModal(); },
+  'close-app-modal': () => closeAppModal(),
   'dismiss-pay-banner': el => {
     returnedOrder = null;
     el.closest('.pay-banner').remove();
@@ -653,6 +657,32 @@ document.addEventListener('input', ev => {
   if (wrap) wrap.hidden = ev.target.value.trim().toLowerCase() === S.user.email;
 });
 
+// ---------- installable app (Windows, Android, iPhone/iPad) ----------
+let installPrompt = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
+window.addEventListener('appinstalled', () => { installPrompt = null; closeAppModal(); toast('autique. is installed on this device'); renderChrome(); });
+function closeAppModal() { const m = $('#app-modal'); if (m) m.remove(); }
+function showInstallHelp() {
+  const ua = navigator.userAgent;
+  const ios = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = /android/i.test(ua);
+  const block = (mine, title, steps) => `<div class="app-steps ${mine ? 'mine' : ''}"><b>${title}${mine ? ' (this device)' : ''}</b><ol>${steps.map(x => `<li>${x}</li>`).join('')}</ol></div>`;
+  const el = document.createElement('div');
+  el.id = 'app-modal';
+  el.className = 'app-modal-bg';
+  el.innerHTML = `<div class="app-modal" role="dialog" aria-modal="true" aria-labelledby="app-modal-title">
+    <div class="app-modal-head"><img src="/icons/icon-192.png" alt=""><div><h3 id="app-modal-title">Install autique.</h3><p class="small muted">Opens like a normal app from your home screen or desktop. No app store needed.</p></div></div>
+    ${block(ios, 'iPhone or iPad', ['Open this site in <b>Safari</b>.', 'Tap the <b>Share</b> button (a square with an arrow).', 'Tap <b>Add to Home Screen</b>, then <b>Add</b>.'])}
+    ${block(android, 'Android', ['Open this site in <b>Chrome</b>.', 'Tap the <b>three dots</b> menu at the top right.', 'Tap <b>Install app</b> (or <b>Add to Home screen</b>).'])}
+    ${block(!ios && !android, 'Windows or Mac', ['Open this site in <b>Chrome</b> or <b>Edge</b>.', 'Click the <b>install icon</b> at the right end of the address bar (or the menu, then <b>Install autique.</b>).'])}
+    <div class="actions"><button class="btn btn-outline" data-act="close-app-modal">Close</button>${installPrompt ? '<button class="btn btn-primary" data-act="install-now">Install now</button>' : ''}</div>
+  </div>`;
+  el.addEventListener('click', ev => { if (ev.target === el) closeAppModal(); });
+  document.body.appendChild(el);
+  $('#app-modal .btn').focus();
+}
+
 // ---------- animated wordmark: open (auto-boutique) at the top, closed (autique.) once scrolling ----------
 let logosReady = false;
 function syncScrollLogos() {
@@ -714,7 +744,10 @@ document.addEventListener('submit', ev => {
   if (form.dataset.form === 'coupon') routeKeepsScroll = true;
   Promise.resolve(forms[form.dataset.form](form, ev)).catch(e => toast(e.message, { err: true }));
 });
-document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { openMenu(false); $('#searchbar').classList.remove('open'); } });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { openMenu(false); closeAppModal(); $('#searchbar').classList.remove('open'); } });
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(err => console.warn('Service worker not registered:', err.message)); });
+}
 window.addEventListener('hashchange', route);
 
 (async function boot() {

@@ -6,11 +6,19 @@
 <title>Autique — Car Care</title>
 <meta name="description" content="Autique: premium car care from Gladiator, Sogo, Prato and WTB. Cash on delivery across Pakistan.">
 <meta name="theme-color" content="#0f1b2b">
-<link rel="icon" href="logo.png">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="application-name" content="autique.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="autique.">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <div class="topstrip">
@@ -23,18 +31,18 @@
           </button>
           <button class="icon-btn" data-act="search" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
         </div>
-        <a class="logo" href="#/" aria-label="Autique home"><span class="nav-wordmark split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></span></a>
+        <a class="logo" href="#/" aria-label="Autique home"><img class="logo-car" src="/icons/car-mark.png" alt="" width="240" height="58"><span class="nav-wordmark split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></span></a>
         <div class="nav-side right">
           <a class="icon-btn" href="#/account" aria-label="Account" id="acct-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg></a>
           <a class="icon-btn" href="#/cart" aria-label="Shopping bag"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6a3 3 0 016 0v2"/></svg><span class="badge-count" id="cart-count" hidden>0</span></a>
         </div>
       </div>
     </header>
-  </div>
   <div class="searchbar" id="searchbar">
     <div class="container">
       <form data-form="search"><input id="search-input" type="search" placeholder="Search tyre gel, wax, cleaners..." aria-label="Search"><button class="btn btn-primary" type="submit">Search</button></form>
     </div>
+  </div>
   </div>
 
   <div class="drawer-bg" id="drawer-bg" data-act="menu-close"></div>
@@ -49,6 +57,6 @@
   <main id="app"><div class="spinner" aria-label="Loading"></div></main>
   <footer id="footer"></footer>
   <div class="toast-wrap" id="toasts" aria-live="polite"></div>
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>
