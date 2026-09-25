@@ -4,7 +4,8 @@
   "description": "Autique — a local Shopify-style storefront with sign in and cart",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "import-catalog": "node scripts/import-catalog.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

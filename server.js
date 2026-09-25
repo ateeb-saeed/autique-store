@@ -10,6 +10,9 @@ const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./
 const gateway = require('./lib/rapidgateway');
 const google = require('./lib/google');
 const site = require('./lib/siteConfig');
+const catalog = require('./lib/catalog');
+const { catalogPlan, applyCatalog, labelOf } = require('./lib/catalogImport');
+const TYPE_KEYS = catalog.TYPES.map(t => t.key);
 const crypto = require('crypto');
 
 store.seed();
@@ -320,7 +323,7 @@ app.get('/api/products', (req, res) => {
             desc: p.desc,
             image: p.image || '',
             images: (p.images && p.images.length ? p.images : (p.image ? [p.image] : [])),
-            brand: p.brand || '', size: p.size || '', usage: p.usage || '', specs: p.specs || '',
+            brand: p.brand || '', size: p.size || '', usage: p.usage || '', specs: p.specs || '', type: p.type || '',
             hasVariants: true,
             variants,
             price: cheapest.price,
@@ -335,7 +338,7 @@ app.get('/api/products', (req, res) => {
           desc: p.desc,
           image: p.image || '',
           images: (p.images && p.images.length ? p.images : (p.image ? [p.image] : [])),
-          brand: p.brand || '', size: p.size || '', usage: p.usage || '', specs: p.specs || '',
+          brand: p.brand || '', size: p.size || '', usage: p.usage || '', specs: p.specs || '', type: p.type || '',
           hasVariants: false,
           price,
           originalPrice: price !== p.price ? p.price : null
@@ -343,7 +346,8 @@ app.get('/api/products', (req, res) => {
       })
   })).filter(cat => cat.products.length > 0);
 
-  res.json({ categories: result });
+  const usedTypes = new Set(result.flatMap(c => c.products.map(p => p.type)).filter(Boolean));
+  res.json({ categories: result, types: catalog.TYPES.filter(t => usedTypes.has(t.key)) });
 });
 
 app.get('/api/settings', (req, res) => {
@@ -614,7 +618,7 @@ app.get('/api/my-orders', requireCustomer, (req, res) => {
 // Admin: products & categories
 // =========================================================
 app.get('/api/admin/products', requireAdmin, (req, res) => {
-  res.json({ products: store.getProducts(), categories: store.getCategories() });
+  res.json({ products: store.getProducts(), categories: store.getCategories(), types: catalog.TYPES });
 });
 
 app.post('/api/admin/products', requireAdmin, (req, res) => {
@@ -671,6 +675,7 @@ function applyProductForm(product, body, products) {
   product.size = String(body.size || '').trim().slice(0, 60);
   product.usage = String(body.usage || '').slice(0, 3000);
   product.specs = String(body.specs || '').slice(0, 3000);
+  product.type = TYPE_KEYS.includes(body.type) ? body.type : '';
   product.active = body.active !== false;
   product.sku = String(body.sku || '').trim() || product.sku || store.autoSku(name, product.id);
   const images = (Array.isArray(body.images) ? body.images : []).filter(u => typeof u === 'string' && u.trim()).slice(0, 12);
@@ -722,6 +727,24 @@ app.put('/api/admin/products/:id/full', requireAdmin, (req, res) => {
   if (error) return res.status(400).json({ error });
   store.saveProducts(products);
   res.json({ product });
+});
+
+app.get('/api/admin/catalog/preview', requireAdmin, (req, res) => {
+  const { rows, untouched } = catalogPlan(store.getProducts());
+  res.json({
+    categories: catalog.NEEDS.map(n => n.title),
+    types: catalog.TYPES.map(t => t.title),
+    rows: rows.map(({ cp, target, merged }) => ({
+      name: cp.name, from: target ? target.name : null, sku: cp.sku, price: cp.price,
+      variants: (cp.variants || []).map(labelOf), photos: cp.images.length + (cp.variants || []).filter(v => v.image).length,
+      merged: merged.map(m => m.name)
+    })),
+    untouched: untouched.map(p => p.name)
+  });
+});
+
+app.post('/api/admin/catalog/import', requireAdmin, (req, res) => {
+  res.json(applyCatalog());
 });
 
 app.post('/api/admin/products/bulk-action', requireAdmin, (req, res) => {

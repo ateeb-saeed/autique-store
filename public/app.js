@@ -140,6 +140,7 @@ async function loadCatalog() {
     api('/api/products'), api('/api/bundles'), api('/api/settings'), api('/api/me')
   ]);
   S.categories = prod.categories;
+  S.types = prod.types || [];
   S.products = prod.categories.flatMap(c => c.products.map(p => ({ ...p, categoryKey: c.key, categoryTitle: c.title })));
   S.bundles = bund.bundles;
   S.settings = settings;
@@ -152,8 +153,9 @@ function renderChrome() {
   const link = (href, label, extra = '') => `<a href="#${href}" class="${cur === href ? 'on' : ''}">${esc(label)}${extra}</a>`;
   $('#drawer-links').innerHTML =
     link('/', 'Home') + link('/shop', 'Shop all')
-    + `<div class="label">Collections</div>`
+    + `<div class="label">Shop by need</div>`
     + S.categories.map(c => link('/shop/' + c.key, c.title, `<span class="count">${c.products.length}</span>`)).join('')
+    + (S.types.length ? `<div class="label">Shop by type</div>` + S.types.map(t => link('/shop?type=' + t.key, t.title, `<span class="count">${S.products.filter(p => p.type === t.key).length}</span>`)).join('') : '')
     + (SITE().sections.bundles && S.bundles.length ? link('/bundles', 'Bundles', `<span class="count">${S.bundles.length}</span>`) : '')
     + (S.settings.saleActive ? link('/shop?sale=1', 'Sale') : '')
     + `<div class="sep"></div>`
@@ -243,8 +245,10 @@ routes.push([/^\/?$/, () => {
     <section class="section how-band"><div class="section-head"><div><h2>How it works</h2><p>Order in minutes. No account needed.</p></div><a class="link" href="#/how-it-works">See the full journey</a></div>
       <ol class="how-steps">${[['Choose', 'Browse and add products to your bag'], ['Check out', 'Enter delivery details as a guest'], ['Pay', 'Cash on delivery or pay online securely'], ['Receive', 'Delivered by PostEx, with tracking']].map(([t, d], i) => `<li><span>${i + 1}</span><b>${t}</b><p>${d}</p></li>`).join('')}</ol></section>
 
-    ${on.collections ? `<section class="section"><div class="section-head"><div><h2>Shop by collection</h2></div><a class="link" href="#/shop">View everything</a></div>
+    ${on.collections ? `<section class="section"><div class="section-head"><div><h2>Shop by need</h2><p>Cleaning, shining, polishing and more.</p></div><a class="link" href="#/shop">View everything</a></div>
       <div class="tiles">${S.categories.map(cat => `<a class="tile" href="#/shop/${esc(cat.key)}"><div><h3>${esc(cat.title)}</h3><p>${esc(cat.tagline)}</p></div><span class="go">${cat.products.length} ${cat.products.length === 1 ? 'product' : 'products'} &rarr;</span></a>`).join('')}</div></section>` : ''}
+    ${on.collections && S.types.length ? `<section class="section type-section"><div class="section-head"><div><h2>Shop by type</h2><p>Go straight to what you need.</p></div></div>
+      <div class="type-chips">${S.types.map(t => `<a class="type-chip" href="#/shop?type=${esc(t.key)}"><b>${esc(t.title)}</b><span>${S.products.filter(p => p.type === t.key).length}</span></a>`).join('')}</div></section>` : ''}
 
     ${S.settings.saleActive ? `<section class="section"><div class="saleband"><div><h2>${esc(S.settings.saleLabel || 'Sale on now')}</h2><p>Sale prices are applied automatically in your bag.</p></div><a class="btn btn-primary btn-lg" href="#/shop?sale=1">Shop the sale</a></div>
       ${onSale.length ? `<div style="margin-top:34px">${gridHTML(onSale.slice(0, 4))}</div>` : ''}</section>` : ''}
@@ -272,18 +276,22 @@ routes.push([/^\/shop(?:\/([\w-]+))?$/, (m, q) => {
   const term = (q.get('q') || '').trim().toLowerCase();
   const sale = q.get('sale') === '1';
   const sort = q.get('sort') || '';
-  let list = S.products.filter(p => (!key || p.categoryKey === key) && (!sale || p.originalPrice)
-    && (!term || `${p.name} ${p.desc} ${p.sku} ${p.categoryTitle}`.toLowerCase().includes(term)));
+  const typeKey = q.get('type') || '';
+  const type = S.types.find(t => t.key === typeKey);
+  let list = S.products.filter(p => (!key || p.categoryKey === key) && (!sale || p.originalPrice) && (!typeKey || p.type === typeKey)
+    && (!term || `${p.name} ${p.desc} ${p.sku} ${p.brand} ${p.categoryTitle} ${(S.types.find(t => t.key === p.type) || {}).title || ''} ${(p.variants || []).map(v => `${v.color} ${v.size} ${v.sku}`).join(' ')}`.toLowerCase().includes(term)));
   if (sort === 'price-asc') list = list.slice().sort((a, b) => a.price - b.price);
   if (sort === 'price-desc') list = list.slice().sort((a, b) => b.price - a.price);
   if (sort === 'name') list = list.slice().sort((a, b) => a.name.localeCompare(b.name));
-  const title = term ? `Results for "${q.get('q')}"` : sale ? 'Sale' : cat ? cat.title : 'Shop all';
-  const sub = sale ? 'Everything currently on offer.' : cat ? cat.tagline : 'Exterior, interior and engine care from Gladiator, Sogo, Prato and WTB.';
+  const title = term ? `Results for "${q.get('q')}"` : sale ? 'Sale' : cat && type ? `${cat.title}: ${type.title}` : cat ? cat.title : type ? type.title : 'Shop all';
+  const sub = sale ? 'Everything currently on offer.' : cat ? cat.tagline : type ? `All our ${type.title.toLowerCase()} products.` : 'Car care from Gladiator, Prato, Sogo and WTB: cleaning, shining, polishing and engine care.';
+  const shopHref = (k, t) => `#/shop${k ? '/' + k : ''}${t ? '?type=' + t : ''}`;
   const opt = (v, label) => `<option value="${v}" ${v === sort ? 'selected' : ''}>${label}</option>`;
   return `<div class="container">
     <div class="page-head"><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
-    <div class="cat-pills"><a class="pill ${!key && !sale ? 'on' : ''}" href="#/shop">All</a>${S.categories.map(c => `<a class="pill ${c.key === key ? 'on' : ''}" href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}${S.settings.saleActive ? `<a class="pill ${sale ? 'on' : ''}" href="#/shop?sale=1">On sale</a>` : ''}</div>
-    <div class="filters" data-base="${esc(key ? '/shop/' + key : '/shop')}" data-q="${esc(q.get('q') || '')}" data-sale="${sale ? '1' : ''}">
+    <div class="pill-row"><span class="pill-label">By need</span><div class="cat-pills"><a class="pill ${!key && !sale ? 'on' : ''}" href="${shopHref('', typeKey)}">All</a>${S.categories.map(c => `<a class="pill ${c.key === key ? 'on' : ''}" href="${shopHref(c.key, typeKey)}">${esc(c.title)}</a>`).join('')}${S.settings.saleActive ? `<a class="pill ${sale ? 'on' : ''}" href="#/shop?sale=1">On sale</a>` : ''}</div></div>
+    ${S.types.length ? `<div class="pill-row"><span class="pill-label">By type</span><div class="cat-pills"><a class="pill ${!typeKey ? 'on' : ''}" href="${shopHref(key, '')}">All types</a>${S.types.map(t => `<a class="pill ${t.key === typeKey ? 'on' : ''}" href="${shopHref(key, t.key)}">${esc(t.title)}</a>`).join('')}</div></div>` : ''}
+    <div class="filters" data-base="${esc(key ? '/shop/' + key : '/shop')}" data-q="${esc(q.get('q') || '')}" data-sale="${sale ? '1' : ''}" data-type="${esc(typeKey)}">
       <select data-change="sort" aria-label="Sort">${opt('', 'Featured')}${opt('price-asc', 'Price: low to high')}${opt('price-desc', 'Price: high to low')}${opt('name', 'Name A-Z')}</select>
       <span class="count">${list.length} ${list.length === 1 ? 'product' : 'products'}</span>
     </div>
@@ -312,7 +320,8 @@ routes.push([/^\/product\/(\d+)$/, (m, q) => {
         <details ${p.hasVariants ? '' : 'open'}><summary>Product details</summary>
           <table class="vtable spec-table"><tbody>
             ${p.brand ? `<tr><th>Brand</th><td>${esc(p.brand)}</td></tr>` : ''}
-            <tr><th>Collection</th><td>${esc(p.categoryTitle)}</td></tr>
+            <tr><th>Category</th><td>${esc(p.categoryTitle)}</td></tr>
+            ${(S.types.find(t => t.key === p.type) || {}).title ? `<tr><th>Type</th><td>${esc(S.types.find(t => t.key === p.type).title)}</td></tr>` : ''}
             ${p.size ? `<tr><th>Size</th><td>${esc(p.size)}</td></tr>` : ''}
             <tr><th>SKU</th><td class="sku">${esc(p.sku || '—')}</td></tr>
             <tr><th>Price</th><td>${p.hasVariants && p.variants.length > 1 ? `From ${fmt(p.price)}` : fmt(p.price)} (PKR)</td></tr>
@@ -778,6 +787,7 @@ const changes = {
     if (el.value) p.set('sort', el.value);
     if (box.dataset.q) p.set('q', box.dataset.q);
     if (box.dataset.sale) p.set('sale', box.dataset.sale);
+    if (box.dataset.type) p.set('type', box.dataset.type);
     const s = p.toString();
     go(box.dataset.base + (s ? '?' + s : ''));
   },

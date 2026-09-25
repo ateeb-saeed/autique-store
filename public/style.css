@@ -382,6 +382,17 @@ a.contact-card:hover{ background:var(--tint); }
 @media (max-width:1000px){ .how-steps{ grid-template-columns:repeat(2, 1fr); } .pdp-gallery{ position:static; } }
 @media (max-width:720px){ .biz-dl div{ grid-template-columns:1fr; gap:2px; } .how-steps{ grid-template-columns:1fr; } }
 
+/* ---------- Shop by need / type ---------- */
+.pill-row{ display:flex; gap:12px; align-items:baseline; margin-bottom:12px; }
+.pill-label{ flex:none; width:76px; font-size:0.78rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-3); }
+.pill-row .cat-pills{ margin-bottom:0; }
+.type-chips{ display:flex; flex-wrap:wrap; gap:10px; }
+.type-chip{ display:inline-flex; align-items:center; gap:10px; padding:10px 16px; border:1.5px solid var(--border); border-radius:999px; background:var(--white); }
+.type-chip:hover{ background:var(--tint); }
+.type-chip span{ min-width:24px; height:24px; padding:0 6px; border-radius:999px; background:var(--navy); color:#fff; font-size:0.78rem; font-weight:700; display:grid; place-items:center; }
+.type-section{ margin-top:40px; }
+@media (max-width:720px){ .pill-row{ flex-direction:column; gap:6px; } }
+
 /* ---------- Toast + spinner ---------- */
 .toast-wrap{ position:fixed; z-index:200; left:50%; bottom:calc(28px + env(safe-area-inset-bottom)); transform:translateX(-50%); display:grid; gap:10px; justify-items:center; }
 .toast{ display:flex; align-items:center; gap:16px; background:var(--navy); color:#fff; padding:13px 22px; border-radius:999px; box-shadow:0 18px 40px rgba(15,27,43,0.25); font-size:0.92rem; animation:fadeup .3s both; }

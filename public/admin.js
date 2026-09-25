@@ -1,5 +1,6 @@
 let categories = [];
 let products = [];
+let productTypes = [];
 
 // ---------- Auth ----------
 async function checkAdmin(){
@@ -78,6 +79,7 @@ async function loadProducts(){
   const data = await res.json();
   products = data.products;
   categories = data.categories;
+  productTypes = data.types || [];
   renderCategoryFilter();
   renderProductsTable();
   renderCategoriesTable();
@@ -201,6 +203,9 @@ function openProductEditor(id){
       <div class="field"><label for="pf-name">Product name</label><input class="input" id="pf-name" name="name" value="${esc(p.name)}" required></div>
       <div class="row">
         <div class="field"><label for="pf-cat">Category</label><select id="pf-cat" name="categoryKey">${categories.map(c => `<option value="${esc(c.key)}" ${c.key === p.categoryKey ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}</select></div>
+        <div class="field"><label for="pf-type">Type</label><select id="pf-type" name="type"><option value="">None</option>${productTypes.map(t => `<option value="${esc(t.key)}" ${t.key === p.type ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select><div class="hint">Used for "Shop by type".</div></div>
+      </div>
+      <div class="row">
         <div class="field"><label for="pf-price">Price (Rs.)</label><input class="input" id="pf-price" name="price" type="number" min="0" value="${esc(p.price)}" required><div class="hint">The default price. A variant can override it below.</div></div>
       </div>
       <div class="field"><label for="pf-desc">Description</label><textarea class="input" id="pf-desc" name="desc" rows="4" maxlength="3000">${esc(p.desc)}</textarea><div class="hint">What it is, what it does and what it's for. Shown on the product page.</div></div>
@@ -239,6 +244,37 @@ function openProductEditor(id){
 }
 
 document.getElementById('addProductBtn').addEventListener('click', () => openProductEditor(null));
+
+// ---------- Import the Autique catalogue (lib/catalog.js) ----------
+document.getElementById('importCatalogBtn').addEventListener('click', async () => {
+  let plan;
+  try { plan = await api('/api/admin/catalog/preview'); } catch(err){ toast(err.message, true); return; }
+  const el = document.createElement('div');
+  el.className = 'app-modal-bg';
+  el.innerHTML = `<div class="app-modal" style="width:min(760px,100%)" role="dialog" aria-modal="true" aria-labelledby="cat-title">
+    <h3 id="cat-title" style="margin:0 0 6px">Import the Autique catalogue</h3>
+    <p class="hint-text">Sets up the categories by need (${plan.categories.map(esc).join(', ')}), the product types, and ${plan.rows.length} products with prices, SKUs, variants, details and photos. Products that already exist are updated in place, keeping their stock and order history. Your own photos are kept for products the catalogue has no photo for.</p>
+    <div class="tbl-wrap" style="max-height:48vh;overflow:auto"><table class="data-table"><thead><tr><th>Product</th><th>SKU</th><th class="r">Price</th><th>Variants</th><th class="r">Photos</th><th>Action</th></tr></thead><tbody>
+      ${plan.rows.map(r => `<tr><td>${esc(r.name)}</td><td class="mono">${esc(r.sku)}</td><td class="r">${money(r.price)}</td><td>${r.variants.map(esc).join(', ') || '—'}</td><td class="r">${r.photos || '<span class="badge off">none</span>'}</td><td class="sub">${r.from ? (r.from === r.name ? 'Update' : `Update "${esc(r.from)}"`) : 'Add'}${r.merged.length ? `; merges ${r.merged.map(esc).join(', ')}` : ''}</td></tr>`).join('')}
+    </tbody></table></div>
+    ${plan.untouched.length ? `<p class="hint-text" style="margin-top:10px">Left as they are: ${plan.untouched.map(esc).join(', ')}.</p>` : ''}
+    <div class="actions"><button class="btn" data-cat-close>Cancel</button><button class="btn btn-primary" data-cat-apply>Import catalogue</button></div>
+  </div>`;
+  el.addEventListener('click', async e => {
+    if(e.target === el || e.target.closest('[data-cat-close]')) el.remove();
+    const apply = e.target.closest('[data-cat-apply]');
+    if(apply){
+      apply.disabled = true;
+      try {
+        const r = await api('/api/admin/catalog/import', 'POST', {});
+        el.remove();
+        toast(`Catalogue imported: ${r.updated} updated, ${r.added} added${r.merged ? `, ${r.merged} merged` : ''}.`);
+        await loadProducts();
+      } catch(err){ toast(err.message, true); apply.disabled = false; }
+    }
+  });
+  document.body.appendChild(el);
+});
 
 editor.addEventListener('click', e => {
   if(e.target.closest('[data-cancel]')){ showEditor(false); return; }
@@ -290,7 +326,7 @@ editor.addEventListener('submit', async e => {
   const body = {
     name: f.name.value, categoryKey: f.categoryKey.value, price: f.price.value, desc: f.desc.value,
     sku: f.sku.value, stock: f.stock.value, active: f.active.checked, images: editorImages, variants,
-    brand: f.brand.value, size: f.size.value, usage: f.usage.value, specs: f.specs.value
+    brand: f.brand.value, size: f.size.value, usage: f.usage.value, specs: f.specs.value, type: f.type.value
   };
   const id = f.dataset.id;
   const btn = f.querySelector('button[type=submit]');

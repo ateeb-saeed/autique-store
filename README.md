@@ -114,6 +114,26 @@ no prices and can't change products, coupons, sales or settings.
   the items off the stock count; it's refused if there isn't enough stock.
 - **Stock history** — every restock and dispatch, with the running balance.
 
+## The Autique catalogue
+
+`lib/catalog.js` holds the full catalogue: categories **by need** (Cleaning,
+Shine & Protect, Polishing & Restoration, Protection & Maintenance, Engine &
+Fuel Care), product **types** (Tyre Care, Car Wash & Shampoo, Interior Care,
+Leather Care, Glass Care, Wax & Polish, Scratch & Paint Care, Engine Care, Fuel
+Additives, Rust & Lubricants, Car Fragrances), and all 24 products with prices,
+brand SKUs, sizes, variants (e.g. dashboard polish scents, Color Magic
+colours), descriptions, directions and specifications. Product photos are in
+`public/products/` (from the brands' own listings and Pakistani retailers).
+
+To apply it to a store (it updates matching products in place, keeping stock
+and order history, and adds anything missing):
+
+- **Admin → Products → "Import Autique catalogue"** (shows a preview first), or
+- `npm run import-catalog` to preview, then `npm run import-catalog -- --apply`.
+
+On the live site, run it once after deploying. Running it again is safe.
+Customers can shop by need and by type (menu, home page and shop filters).
+
 ## Business pages (for payment-provider verification)
 
 Written from the business case document and editable in admin → Site editor →
