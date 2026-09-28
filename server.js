@@ -769,14 +769,16 @@ function applyProductForm(product, body, products) {
     variant.price = priceSet ? Math.max(0, Number(v.price)) : price;
     variant.sku = String(v.sku || '').trim() || `${product.sku}-${i + 1}`;
     const before = prev ? (prev.stock || 0) : 0;
-    variant.stock = int(v.stock);
+    variant.unlimited = v.unlimited === true;
+    variant.stock = variant.unlimited ? UNLIMITED_STOCK : int(v.stock);
     logChange(`${product.id}:${variant.id}`, `${name} — ${[variant.color, variant.size].filter(Boolean).join(' / ') || 'Standard'}`, variant.sku, before, variant.stock);
     kept.push(variant);
   });
   product.variants = kept;
   if (!kept.length) {
     const before = product.stock || 0;
-    product.stock = int(body.stock);
+    product.unlimited = body.unlimited === true;
+    product.stock = product.unlimited ? UNLIMITED_STOCK : int(body.stock);
     logChange(String(product.id), name, product.sku, before, product.stock);
   }
   store.saveStockLog(log);
@@ -1165,6 +1167,13 @@ function orderStockNeeds(order, products, bundles) {
   return needs;
 }
 
+// Items marked "unlimited" (e.g. always available from the supplier) keep this stock
+// count: every sale or dispatch puts them straight back to it.
+const UNLIMITED_STOCK = 100;
+function keepUnlimited(target) {
+  if (target && target.unlimited) target.stock = UNLIMITED_STOCK;
+}
+
 function findStockItem(products, key) {
   const [pid, vid] = key.split(':').map(Number);
   const product = products.find(p => p.id === pid);
@@ -1239,8 +1248,8 @@ function buildStockRows() {
     const variants = p.variants || [];
     const entries = variants.length
       ? variants.map(v => ({ key: stockKey(p.id, v.id), variant: variantLabel(v), sku: v.sku, image: v.image || p.image,
-          active: p.active && v.active !== false, onHand: v.stock || 0 }))
-      : [{ key: stockKey(p.id), variant: '', sku: p.sku, image: p.image, active: !!p.active, onHand: p.stock || 0 }];
+          active: p.active && v.active !== false, onHand: v.stock || 0, unlimited: !!v.unlimited }))
+      : [{ key: stockKey(p.id), variant: '', sku: p.sku, image: p.image, active: !!p.active, onHand: p.stock || 0, unlimited: !!p.unlimited }];
     entries.forEach(e => {
       const r = reserved[e.key] || 0;
       rows.push({ ...e, name: p.name, category, sku: e.sku || '', image: e.image || '', reserved: r, available: e.onHand - r });
@@ -1258,6 +1267,7 @@ app.post('/api/logistics/restock', requireLogisticsRight('restock'), (req, res) 
   const found = findStockItem(products, String(key));
   if (!found) return res.status(404).json({ error: 'Product not found.' });
   found.target.stock = (found.target.stock || 0) + amount;
+  keepUnlimited(found.target);
   store.saveProducts(products);
 
   const log = store.getStockLog();
@@ -1268,6 +1278,51 @@ app.post('/api/logistics/restock', requireLogisticsRight('restock'), (req, res) 
   });
   store.saveStockLog(log);
   res.json({ ok: true, onHand: found.target.stock });
+});
+
+// Local (walk-in) sale at the warehouse: takes units off the stock count. Open to
+// every logistics login whatever its other rights, with no approval step.
+app.post('/api/logistics/local-sale', requireLogistics, (req, res) => {
+  const { key, qty, note } = req.body || {};
+  const amount = Math.floor(Number(qty));
+  if (!key || !(amount > 0)) return res.status(400).json({ error: 'Enter how many units were sold (a whole number above 0).' });
+  const products = store.getProducts();
+  const found = findStockItem(products, String(key));
+  if (!found) return res.status(404).json({ error: 'Product not found.' });
+  const have = found.target.stock || 0;
+  if (!found.target.unlimited && amount > have) return res.status(400).json({ error: `Only ${have} on hand. Restock first if more units arrived.` });
+  found.target.stock = have - amount;
+  keepUnlimited(found.target);
+  store.saveProducts(products);
+  const log = store.getStockLog();
+  log.push({
+    id: store.nextId(log), type: 'local-sale', key: String(key), name: stockName(found),
+    sku: found.target.sku || '', qty: -amount, balance: found.target.stock,
+    note: String(note || '').slice(0, 200), by: req.session.isLogistics ? 'Logistics' : 'Admin', at: new Date().toISOString()
+  });
+  store.saveStockLog(log);
+  res.json({ ok: true, onHand: found.target.stock });
+});
+
+// Mark an item as unlimited: its stock is held at UNLIMITED_STOCK (100) and never runs out.
+app.post('/api/logistics/unlimited', requireLogisticsRight('restock'), (req, res) => {
+  const { key, unlimited } = req.body || {};
+  const products = store.getProducts();
+  const found = findStockItem(products, String(key || ''));
+  if (!found) return res.status(404).json({ error: 'Product not found.' });
+  const before = found.target.stock || 0;
+  found.target.unlimited = unlimited === true;
+  keepUnlimited(found.target);
+  store.saveProducts(products);
+  const log = store.getStockLog();
+  log.push({
+    id: store.nextId(log), type: 'unlimited', key: String(key), name: stockName(found),
+    sku: found.target.sku || '', qty: (found.target.stock || 0) - before, balance: found.target.stock || 0,
+    note: found.target.unlimited ? `Marked unlimited (always ${UNLIMITED_STOCK})` : 'Unlimited switched off',
+    by: req.session.isLogistics ? 'Logistics' : 'Admin', at: new Date().toISOString()
+  });
+  store.saveStockLog(log);
+  res.json({ ok: true, unlimited: found.target.unlimited, onHand: found.target.stock });
 });
 
 app.get('/api/logistics/orders', requireLogisticsRight('viewOrders'), (req, res) => {
@@ -1315,6 +1370,7 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogisticsRight('dispatch')
   Object.entries(needs).forEach(([key, qty]) => {
     const found = findStockItem(products, key);
     const have = found ? (found.target.stock || 0) : 0;
+    if (found && found.target.unlimited) return;
     if (have < qty) short.push(`${found ? stockName(found) : 'Unknown product'}: need ${qty}, have ${have}`);
   });
   if (short.length) return res.status(409).json({ error: 'Not enough stock to dispatch this order.', short });
@@ -1325,6 +1381,7 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogisticsRight('dispatch')
   Object.entries(needs).forEach(([key, qty]) => {
     const found = findStockItem(products, key);
     found.target.stock = (found.target.stock || 0) - qty;
+    keepUnlimited(found.target);
     log.push({
       id: store.nextId(log), type: 'dispatch', key, name: stockName(found),
       sku: found.target.sku || '', qty: -qty, balance: found.target.stock,

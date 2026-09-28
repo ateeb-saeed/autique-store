@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="autique logistics">
-<link rel="stylesheet" href="/admin.css?v=15">
+<link rel="stylesheet" href="/admin.css?v=19">
 </head>
 <body>
 
@@ -103,6 +103,24 @@
   </main>
 </div>
 
+<!-- Local sale modal -->
+<div class="overlay" id="saleOverlay"></div>
+<div class="modal" id="saleModal">
+  <button class="close-btn" data-close="sale" aria-label="Close">&times;</button>
+  <h2 class="modal-title">Local sale</h2>
+  <p class="hint-text" id="saleItem"></p>
+  <form class="inline-form-col" id="saleForm">
+    <label class="field-label">Units sold
+      <input type="number" name="qty" min="1" step="1" required>
+    </label>
+    <label class="field-label">Note (optional)
+      <input type="text" name="note" maxlength="200" placeholder="e.g. Walk-in customer, receipt #">
+    </label>
+    <p class="error-text" id="saleError"></p>
+    <button type="submit" class="btn-primary">Record sale</button>
+  </form>
+</div>
+
 <!-- Restock modal -->
 <div class="overlay" id="restockOverlay"></div>
 <div class="modal" id="restockModal">
@@ -144,7 +162,7 @@
   </div>
 </div>
 
-<script src="/logistics.js?v=16"></script>
+<script src="/logistics.js?v=17"></script>
 <script src="/portal-app.js?v=15" data-app-name="autique logistics" data-icon="/icons/logistics-192.png" data-sw="/logistics/sw.js"></script>
 </body>
 </html>

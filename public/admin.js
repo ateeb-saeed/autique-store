@@ -78,6 +78,7 @@ async function api(url, method = 'GET', body){
   return data;
 }
 const productStock = p => (p.variants || []).length ? p.variants.reduce((s, v) => s + (v.stock || 0), 0) : (p.stock || 0);
+const productUnlimited = p => (p.variants || []).length ? p.variants.some(v => v.unlimited) : !!p.unlimited;
 
 async function loadProducts(){
   const res = await fetch('/api/admin/products');
@@ -114,7 +115,7 @@ function renderProductsTable(){
       <td><a class="name-link" href="#" data-edit="${p.id}">${esc(p.name)}</a><div class="sub">${nv ? `${nv} variant${nv === 1 ? '' : 's'}` : esc(p.sku || '')}</div></td>
       <td>${esc(catTitle(p.categoryKey))}</td>
       <td class="r">${money(p.price)}</td>
-      <td class="r">${stock === 0 ? '<span class="badge off">0</span>' : stock}</td>
+      <td class="r">${stock === 0 ? '<span class="badge off">0</span>' : stock}${productUnlimited(p) ? '<br><span class="badge on">Unlimited</span>' : ''}</td>
       <td><button class="pill-toggle ${p.active ? 'on' : ''}" data-toggle="${p.id}" aria-pressed="${!!p.active}">${p.active ? 'Visible' : 'Hidden'}</button></td>
       <td class="r"><div class="row-actions"><button class="btn btn-sm" data-edit="${p.id}">Edit</button><button class="btn btn-danger btn-sm" data-del="${p.id}">Delete</button></div></td>
     </tr>`;
@@ -178,7 +179,8 @@ function variantRowHtml(v){
     <td><input class="input" data-k="size" value="${esc(v.size)}" style="width:90px" aria-label="Size"></td>
     <td><input class="input" data-k="sku" value="${esc(v.sku)}" aria-label="SKU"></td>
     <td><input class="input" data-k="price" type="number" min="0" value="${v.priceSet === false || v.price === undefined ? '' : v.price}" style="width:120px" aria-label="Variant price"></td>
-    <td><input class="input" data-k="stock" type="number" min="0" value="${v.stock || 0}" style="width:90px" aria-label="Stock"></td>
+    <td><input class="input" data-k="stock" type="number" min="0" value="${v.stock || 0}" style="width:90px" aria-label="Stock" ${v.unlimited ? 'disabled' : ''}>
+      <label class="unl-tick" title="Always ${100} in stock, never runs out"><input type="checkbox" data-k="unlimited" ${v.unlimited ? 'checked' : ''}> Unlimited</label></td>
     <td><button class="btn btn-sm" type="button" data-rm-var aria-label="Remove row">&times;</button></td>
   </tr>`;
 }
@@ -222,7 +224,7 @@ function openProductEditor(id){
       <div class="field"><label for="pf-specs">Specifications</label><textarea class="input" id="pf-specs" name="specs" rows="4" maxlength="3000" placeholder="Material: Microfiber&#10;Made in: Pakistan&#10;Colour: Black">${esc(p.specs || '')}</textarea><div class="hint">Optional. One per line as "Name: value". Shown as a table on the product page.</div></div>
       <div class="row">
         <div class="field"><label for="pf-sku">SKU</label><input class="input" id="pf-sku" name="sku" value="${esc(p.sku)}"><div class="hint">Leave blank to create one automatically.</div></div>
-        <div class="field" id="pf-simple"><label for="pf-stock">Stock</label><input class="input" id="pf-stock" name="stock" type="number" min="0" value="${p.stock || 0}"><div class="hint">Units on hand. With sizes or colours, set stock per row below instead.</div></div>
+        <div class="field" id="pf-simple"><label for="pf-stock">Stock</label><input class="input" id="pf-stock" name="stock" type="number" min="0" value="${p.stock || 0}" ${p.unlimited ? 'disabled' : ''}><label class="unl-tick"><input type="checkbox" name="unlimited" id="pf-unlimited" ${p.unlimited ? 'checked' : ''}> Unlimited (always 100, never runs out)</label><div class="hint">Units on hand. With sizes or colours, set stock per row below instead.</div></div>
       </div>
       <label class="check"><input type="checkbox" name="active" ${p.active ? 'checked' : ''}> Visible in the shop</label>
     </div></div>
@@ -320,17 +322,24 @@ editor.addEventListener('change', async e => {
   e.target.value = '';
 });
 
+// "Unlimited" ticked: the stock number is held at 100 by the server, so lock the box
+editor.addEventListener('change', e => {
+  if(e.target.dataset.k !== 'unlimited' && e.target.id !== 'pf-unlimited') return;
+  const box = e.target.closest('td, .field').querySelector('input[type=number]');
+  if(box){ box.disabled = e.target.checked; if(e.target.checked) box.value = 100; }
+});
+
 editor.addEventListener('submit', async e => {
   e.preventDefault();
   const f = editor;
   const variants = [...f.querySelectorAll('#pf-vars tr')].map(tr => {
     const o = { id: tr.dataset.id ? Number(tr.dataset.id) : undefined };
-    tr.querySelectorAll('input').forEach(i => { o[i.dataset.k] = i.value; });
+    tr.querySelectorAll('input').forEach(i => { o[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value; });
     return o;
   });
   const body = {
     name: f.name.value, categoryKey: f.categoryKey.value, price: f.price.value, desc: f.desc.value,
-    sku: f.sku.value, stock: f.stock.value, active: f.active.checked, images: editorImages, variants,
+    sku: f.sku.value, stock: f.stock.value, unlimited: f.unlimited.checked, active: f.active.checked, images: editorImages, variants,
     brand: f.brand.value, size: f.size.value, usage: f.usage.value, specs: f.specs.value, type: f.type.value
   };
   const id = f.dataset.id;

@@ -4,6 +4,7 @@ let stock = [];
 let orders = [];
 let orderFilter = 'open';
 let restockKey = null;
+let saleKey = null;
 let dispatchOrderId = null;
 let rights = {};   // what this login may do, set by the admin's Site editor
 
@@ -65,6 +66,7 @@ async function loadStock(){
 }
 
 function stockBadge(row){
+  if(row.unlimited) return '<span class="badge on">Unlimited</span>';
   if(row.available <= 0) return '<span class="badge off">Out</span>';
   if(row.available <= LOW_STOCK) return '<span class="badge low">Low</span>';
   return '';
@@ -74,8 +76,8 @@ function renderStock(){
   const q = document.getElementById('stockSearch').value.trim().toLowerCase();
   const rows = stock.filter(r => !q || `${r.name} ${r.variant} ${r.sku}`.toLowerCase().includes(q));
 
-  const out = stock.filter(r => r.available <= 0).length;
-  const low = stock.filter(r => r.available > 0 && r.available <= LOW_STOCK).length;
+  const out = stock.filter(r => !r.unlimited && r.available <= 0).length;
+  const low = stock.filter(r => !r.unlimited && r.available > 0 && r.available <= LOW_STOCK).length;
   const units = stock.reduce((s, r) => s + r.onHand, 0);
   document.getElementById('stockStats').innerHTML = `
     <div class="stat"><span class="stat-val">${stock.length}</span><span class="stat-label">SKUs</span></div>
@@ -93,12 +95,18 @@ function renderStock(){
       <td class="num">${r.onHand}</td>
       <td class="num">${r.reserved || '—'}</td>
       <td class="num"><strong>${r.available}</strong> ${stockBadge(r)}</td>
-      <td>${rights.restock ? `<button class="icon-btn" data-restock="${esc(r.key)}">Restock</button>` : ''}</td>
+      <td class="stock-actions"><button class="icon-btn" data-sale="${esc(r.key)}">Local sale</button>${rights.restock && !r.unlimited ? `<button class="icon-btn" data-restock="${esc(r.key)}">Restock</button>` : ''}${rights.restock ? `<button class="pill-toggle ${r.unlimited ? 'on' : ''}" data-unlimited="${esc(r.key)}" aria-pressed="${!!r.unlimited}" title="Unlimited items always show ${UNLIMITED} in stock and never run out">${r.unlimited ? 'Unlimited' : 'Set unlimited'}</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="7" class="sub">No products match.</td></tr>';
 
   tbody.querySelectorAll('[data-restock]').forEach(btn => {
     btn.addEventListener('click', () => openRestock(btn.dataset.restock));
+  });
+  tbody.querySelectorAll('[data-sale]').forEach(btn => {
+    btn.addEventListener('click', () => openLocalSale(btn.dataset.sale));
+  });
+  tbody.querySelectorAll('[data-unlimited]').forEach(btn => {
+    btn.addEventListener('click', () => toggleUnlimited(btn.dataset.unlimited));
   });
 }
 document.getElementById('stockSearch').addEventListener('input', renderStock);
@@ -126,6 +134,46 @@ document.getElementById('restockForm').addEventListener('submit', async (e) => {
   closeModal('restock');
   loadStock();
 });
+
+// ---------- Local sale (walk-in customer at the warehouse) ----------
+const UNLIMITED = 100;   // stock the server keeps for items marked unlimited
+function openLocalSale(key){
+  const row = stock.find(r => r.key === key);
+  saleKey = key;
+  document.getElementById('saleItem').innerHTML =
+    `${esc(row.name)}${row.variant ? ` — ${esc(row.variant)}` : ''} &middot; SKU ${esc(row.sku) || '—'} &middot; ${row.unlimited ? 'unlimited' : `${row.onHand} on hand`}`;
+  document.getElementById('saleForm').reset();
+  document.getElementById('saleError').textContent = '';
+  const qty = document.querySelector('#saleForm [name=qty]');
+  qty.max = row.unlimited ? '' : String(row.onHand);
+  openModal('sale');
+  qty.focus();
+}
+document.getElementById('saleForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const res = await fetch('/api/logistics/local-sale', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ key: saleKey, qty: form.qty.value, note: form.note.value })
+  });
+  const data = await res.json();
+  if(!res.ok){ document.getElementById('saleError').textContent = data.error; return; }
+  closeModal('sale');
+  loadStock();
+});
+
+async function toggleUnlimited(key){
+  const row = stock.find(r => r.key === key);
+  const name = `${row.name}${row.variant ? ` — ${row.variant}` : ''}`;
+  const on = !row.unlimited;
+  if(!confirm(on ? `Mark "${name}" as unlimited? Its stock will always show ${UNLIMITED} and it will never run out.` : `Switch off unlimited for "${name}"? It keeps ${row.onHand} in stock and counts down normally from now on.`)) return;
+  const res = await fetch('/api/logistics/unlimited', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ key, unlimited: on })
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error); return; }
+  loadStock();
+}
 
 // ---------- Orders ----------
 async function loadOrders(){
@@ -217,7 +265,7 @@ async function loadHistory(){
   document.querySelector('#historyTable tbody').innerHTML = log.map(l => `
     <tr>
       <td>${fmtDate(l.at)}<br><span class="sub">${esc(l.by)}</span></td>
-      <td>${l.type === 'restock' ? '<span class="badge on">Restock</span>' : l.type === 'adjust' ? '<span class="badge low">Admin edit</span>' : '<span class="badge neutral">Dispatch</span>'}</td>
+      <td>${l.type === 'restock' ? '<span class="badge on">Restock</span>' : l.type === 'adjust' ? '<span class="badge low">Admin edit</span>' : l.type === 'local-sale' ? '<span class="badge sale">Local sale</span>' : l.type === 'unlimited' ? '<span class="badge neutral">Unlimited</span>' : '<span class="badge neutral">Dispatch</span>'}</td>
       <td>${esc(l.name)}</td>
       <td class="mono">${esc(l.sku) || '—'}</td>
       <td class="num">${l.qty > 0 ? '+' : ''}${l.qty}</td>
@@ -236,12 +284,12 @@ function closeModal(name){
   document.getElementById(`${name}Modal`).classList.remove('open');
   document.getElementById(`${name}Overlay`).classList.remove('open');
 }
-['restock', 'dispatch'].forEach(name => {
+['restock', 'dispatch', 'sale'].forEach(name => {
   document.getElementById(`${name}Overlay`).addEventListener('click', () => closeModal(name));
   document.querySelector(`[data-close="${name}"]`).addEventListener('click', () => closeModal(name));
 });
 document.addEventListener('keydown', e => {
-  if(e.key === 'Escape'){ closeModal('restock'); closeModal('dispatch'); }
+  if(e.key === 'Escape'){ closeModal('restock'); closeModal('dispatch'); closeModal('sale'); }
 });
 
 checkSignedIn();

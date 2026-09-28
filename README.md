@@ -109,6 +109,11 @@ no prices and can't change products, coupons, sales or settings.
 - **Stock** — every product and variant with its SKU, units on hand,
   units reserved by orders not yet dispatched, and what's available.
   **Restock** adds units that arrived, with an optional note.
+  **Local sale** records a walk-in sale at the warehouse and takes the units
+  off the count. Every logistics login can do this, whatever its other rights.
+  **Set unlimited** (needs the Restock right, or admin; also a tick box in the
+  admin product editor) marks an item that never runs out: its stock is held
+  at 100, and sales, dispatches and restocks leave it at 100.
 - **Orders** — delivery details, items with SKUs, and the cash to collect
   for COD. **Dispatch** records the courier and tracking number and takes
   the items off the stock count; it's refused if there isn't enough stock.

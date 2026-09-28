@@ -326,3 +326,10 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 .mode-badge:empty{ display:none; }
 .mode-badge.live{ color:#fff; background:var(--success); border-color:var(--success); }
 .mode-badge.sandbox{ color:#8a5a00; background:#fff6df; border-color:#e0b24a; }
+
+/* Local sale + unlimited stock */
+.stock-actions{ white-space:nowrap; }
+.stock-actions .pill-toggle{ vertical-align:middle; }
+.badge.sale{ border-color:#c8601c; color:#c8601c; }
+.unl-tick{ display:inline-flex !important; flex-direction:row !important; align-items:center; gap:6px; margin-top:6px; font-size:0.78rem; font-weight:600; color:var(--ink-2); white-space:nowrap; cursor:pointer; }
+.unl-tick input{ width:auto !important; }
