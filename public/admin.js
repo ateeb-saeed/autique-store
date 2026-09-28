@@ -606,7 +606,7 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
 // ---------- Orders ----------
 // Customer emails per order stage: what went out, or why not.
 const EMAIL_STAGES = [['placed', 'Placed'], ['confirmed', 'Confirmed'], ['dispatched', 'Dispatched'], ['delivered', 'Delivered']];
-const EMAIL_STATE = { sent: '&#10003;', saved: '&#10003; (test outbox)', queued: 'sending…', off: 'not sent: email not set up', failed: 'failed' };
+const EMAIL_STATE = { sent: '&#10003;', queued: 'sending…', off: 'not sent: email not set up', failed: 'failed' };
 function emailSummary(o){
   const sent = EMAIL_STAGES.filter(([k]) => o.emails && o.emails[k]);
   if(!sent.length) return '';

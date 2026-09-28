@@ -361,7 +361,7 @@ app.get('/api/settings', (req, res) => {
     saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo,
     cardPayments: gateway.configured && cfg.customers.payOnline,
     googleClientId: cfg.customers.allowGoogle ? google.clientId : '',
-    emailUpdates: mailer.mode() !== 'off',
+    emailUpdates: mailer.configured(),
     site: { content: cfg.content, sections: cfg.sections, customers: cfg.customers }
   });
 });
@@ -1413,4 +1413,6 @@ app.listen(PORT, () => {
   console.log(`Autique store running at http://localhost:${PORT}`);
   console.log(`Admin panel at http://localhost:${PORT}/admin/`);
   console.log(`Logistics portal at http://localhost:${PORT}/logistics/`);
+  if (!mailer.configured()) console.log('Order emails are off: set BREVO_API_KEY to send them.');
 });
+orderEmails.failStuck();

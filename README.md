@@ -272,23 +272,30 @@ The customer is emailed automatically at each stage, from `info@autique.pk`:
 | Delivered | The admin sets the status to **Delivered** |
 
 Each email goes at most once per order; admin → Orders shows which were
-sent. Set these environment variables (on Railway: Variables):
+sent, and hovering a **failed** one shows why.
+
+Emails are sent through **Brevo's HTTPS API**, not SMTP: Railway blocks
+outbound SMTP (every port, including 2525) on its Free, Trial and Hobby
+plans. Set this environment variable (on Railway: Variables):
 
 | Variable | What it is |
 |---|---|
-| `SMTP_HOST` | Your mail provider's SMTP server, e.g. `smtp.zoho.com`, `smtp.gmail.com` (Google Workspace) or `smtp-relay.brevo.com` |
-| `SMTP_PORT` | `587` (default) or `465` |
-| `SMTP_USER` | Usually the full address, `info@autique.pk` |
-| `SMTP_PASS` | Its password or app password |
-| `MAIL_FROM` | Optional sender, default `Autique <info@autique.pk>` |
-| `MAIL_REPLY_TO` | Optional reply-to address |
-| `MAIL_OUTBOX_DIR` | For testing only: with no `SMTP_HOST`, save every email (and its PDF) to this folder instead of sending |
+| `BREVO_API_KEY` | Brevo → SMTP & API → API keys → Generate a new API key |
 
-Without `SMTP_HOST`, nothing is sent: orders work as before and the server
-log notes each email it skipped. The mailbox's domain needs SPF/DKIM set up
-at your provider, or emails may land in spam. `PUBLIC_BASE_URL` must be the
-live address, since the emails link to Track your order and show the logo
-from it.
+Without `BREVO_API_KEY`, email is off: orders work as before, admin shows
+"not sent: email not set up", and the server log notes each email it skipped.
+In Brevo, add and verify `info@autique.pk` as a sender (Senders, domains &
+dedicated IPs) and authenticate the autique.pk domain (the DKIM and DMARC
+records Brevo gives you), or emails may be rejected or land in spam.
+`PUBLIC_BASE_URL` must be the live address, since the emails link to Track
+your order and show the logo from it.
+
+Each send waits at most 15 seconds for Brevo. A timeout, network error or
+error reply marks that email **failed** in admin, and the server log shows
+Brevo's HTTP status and reply. On start, the server also marks any email
+stuck on "sending…" for over 5 minutes (for example, cut off by a restart)
+as failed. A failed email is tried again the next time the order's status
+changes to that stage.
 
 ## Taking it online
 
