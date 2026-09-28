@@ -301,3 +301,22 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 @media (max-width:640px){
   .dash-grid{ grid-template-columns:minmax(0,1fr); }
 }
+
+/* ---------- Delivery & payment ---------- */
+.row-2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.settings-form .row-2 label, .charges-editor label{ display:flex; flex-direction:column; gap:6px; font-size:0.86rem; font-weight:600; }
+.settings-form.hidden, .row-2 .hidden, label.hidden{ display:none; }
+#tab-charges .settings-form{ max-width:640px; }
+.charges-now{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.charges-now > div{ border:1.5px solid var(--border); border-radius:var(--r-lg); padding:16px 18px; display:flex; flex-direction:column; gap:6px; background:var(--white); font-size:0.9rem; }
+.charges-now .sub{ color:var(--ink-2); font-size:0.82rem; }
+.charges-editor{ margin-top:18px; border:1.5px solid var(--border); border-radius:var(--r-lg); padding:22px; background:var(--white); display:flex; flex-direction:column; gap:14px; }
+.charges-editor input[type=text], .charges-editor input[type=number], .charges-editor input[type=datetime-local]{ border:1.5px solid var(--border); border-radius:var(--r-sm); padding:9px 12px; font-size:0.92rem; font-weight:400; background:var(--white); color:var(--ink); }
+.se-opt{ border:1px solid var(--line); border-radius:var(--r-md); padding:16px; display:flex; flex-direction:column; gap:10px; background:#fafbfc; }
+.se-tiers input{ width:100%; max-width:200px; }
+.se-tiers input[readonly]{ background:var(--tint); }
+.offer-preview .sub{ color:var(--ink-2); font-size:0.8rem; }
+.offer-demo{ position:relative; margin-top:6px; padding:12px 14px 12px 18px; border-radius:var(--r-md); border:1.5px solid #c8601c; background:linear-gradient(135deg, #fff 0%, #fdf1e8 60%, #f8dcc4 100%); display:flex; flex-direction:column; gap:4px; overflow:hidden; font-size:0.86rem; font-weight:400; }
+.offer-demo::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:#c8601c; }
+.offer-demo b{ color:#c8601c; font-size:0.95rem; }
+@media (max-width:720px){ .row-2, .charges-now{ grid-template-columns:1fr; } }

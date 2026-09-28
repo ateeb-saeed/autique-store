@@ -532,11 +532,26 @@ routes.push([/^\/product\/(\d+)(?:-[\w-]*)?$/, (m, q) => {
 }]);
 
 // CART
+// The customer's picks at checkout (kept while they move between bag and checkout)
+const pick = { payment: '', delivery: '' };
+const defaultPayment = () => SITE().customers.cashOnDelivery ? 'cod' : 'card';
+const feeText = fee => fee > 0 ? fmt(fee) : 'Free';
+// Eye-catching "pay online and save" callout; on the checkout page it also switches to online payment
+function offerHTML(t, where) {
+  if (!t.offer || !(t.onlineDiscount > 0)) return '';
+  if (t.prepaidDiscount > 0) return `<div class="offer-callout on" role="status"><b>You're saving ${fmt(t.prepaidDiscount)}</b><span>${esc(t.offer.label)} for paying online, applied below.</span></div>`;
+  return `<div class="offer-callout"><b>${esc(t.offer.headline)}</b><span>Save <strong>${fmt(t.onlineDiscount)}</strong> on this order when you pay online${where === 'cart' ? ' at checkout' : ''}.${t.offer.endsAt ? ` Offer ends ${fdate(t.offer.endsAt)}.` : ''}</span>
+    ${where === 'checkout' ? '<button type="button" class="btn btn-primary btn-sm" data-act="pick-online">Pay online and save</button>' : ''}</div>`;
+}
 function summaryHTML(t, extra = '', lines = '') {
-  return `<div class="summary"><h3>Order summary</h3>${lines}
+  const d = t.delivery;
+  return `<div class="summary" id="order-summary"><h3>Order summary</h3>${lines}
     <div class="sum-row"><span>Subtotal</span><span>${fmt(t.subtotal)}</span></div>
     ${t.saleSavings > 0 ? `<div class="sum-row disc"><span>Sale savings (included)</span><span>${fmt(t.saleSavings)}</span></div>` : ''}
     ${t.discount > 0 ? `<div class="sum-row disc"><span>Code ${esc(t.code)}</span><span>&minus;${fmt(t.discount)}</span></div>` : ''}
+    ${d ? `<div class="sum-row"><span>Delivery${t.deliveryOptions.length > 1 ? ` <span class="muted">&middot; ${esc(d.name)}</span>` : ''}</span><span>${feeText(d.fee)}</span></div>
+      ${d.next ? `<div class="sum-hint">Add ${fmt(d.next.spend)} more for ${d.next.fee > 0 ? `${fmt(d.next.fee)} delivery` : 'free delivery'}.</div>` : ''}` : ''}
+    ${t.prepaidDiscount > 0 ? `<div class="sum-row disc"><span>Online payment discount</span><span>&minus;${fmt(t.prepaidDiscount)}</span></div>` : ''}
     <div class="sum-row total"><span>Total</span><span>${fmt(t.total)}</span></div>${extra}</div>`;
 }
 async function totals(lines) {
@@ -547,7 +562,10 @@ async function totals(lines) {
     const r = await api('/api/coupons/validate', { method: 'POST', body: { code: couponCode, subtotal } });
     if (r.valid) { discount = r.discount; code = r.code; } else { error = r.reason || 'That code is not valid.'; couponCode = ''; }
   }
-  return { subtotal, saleSavings, discount, code, error, total: Math.max(0, subtotal - discount) };
+  const payment = pick.payment || defaultPayment();
+  const q = await api('/api/checkout/quote', { method: 'POST', body: { subtotal, discount, paymentMethod: payment, delivery: pick.delivery } });
+  return { subtotal, saleSavings, discount, code, error, payment, delivery: q.delivery, deliveryOptions: q.options,
+    offer: q.offer, onlineDiscount: q.onlineDiscount, prepaidDiscount: q.prepaidDiscount, total: q.total };
 }
 const emptyBag = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Your bag is empty</h3><p>Find something you like and it will show up here.</p><p style="margin-top:20px"><a class="btn btn-primary" href="/shop">Start shopping</a></p></div></div>`;
 
@@ -557,6 +575,7 @@ routes.push([/^\/cart$/, async () => {
   const t = await totals(lines);
   const extra = `<form class="coupon" data-form="coupon"><input class="input" name="code" placeholder="Discount code" value="${esc(t.code)}" aria-label="Discount code"><button class="btn btn-outline btn-sm" type="submit">Apply</button></form>
     ${t.error ? `<div class="small" style="color:var(--danger);margin-bottom:8px">${esc(t.error)}</div>` : ''}
+    ${offerHTML(t, 'cart')}
     <a class="btn btn-primary btn-lg btn-block" href="/checkout" style="margin-top:14px">Checkout</a>`;
   return `<div class="container"><div class="page-head"><h1>Your bag</h1></div><div class="two"><div>
     ${lines.map(l => `<div class="line"><a class="line-img" href="${l.href}">${imgOrIcon(l.image, altOf(l.name))}</a>
@@ -586,14 +605,31 @@ routes.push([/^\/checkout$/, async () => {
       <div class="field"><label for="c-prov">Province</label><select id="c-prov" name="province"><option value="">Select</option>${PROVINCES.map(x => `<option ${x === u.province ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
       <div class="field"><label for="c-notes">Order notes (optional)</label><textarea class="input" id="c-notes" name="notes" rows="2" placeholder="Landmark, preferred delivery time..."></textarea></div>
     </div></div>
+    <div class="box"><h3>Delivery</h3>
+      ${t.deliveryOptions.map(o => `<label class="pay-opt ${o.key === t.delivery.key ? 'on' : ''}"><input type="radio" name="delivery" value="${esc(o.key)}" ${o.key === t.delivery.key ? 'checked' : ''} data-change="delivery-pick"><div class="opt-main"><b>${esc(o.name)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ''}</div><strong class="opt-fee">${feeText(o.fee)}</strong></label>`).join('')}
+    </div>
     <div class="box"><h3>Payment</h3>
-      ${SITE().customers.cashOnDelivery ? `<label class="pay-opt on"><input type="radio" name="paymentMethod" value="cod" checked data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>` : ''}
-      ${S.settings.cardPayments ? `<label class="pay-opt ${SITE().customers.cashOnDelivery ? '' : 'on'}"><input type="radio" name="paymentMethod" value="card" ${SITE().customers.cashOnDelivery ? '' : 'checked'} data-change="pay-pick"><div><b>Pay online</b><span>Card, JazzCash or Easypaisa, on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
+      ${S.settings.cardPayments ? `<div id="co-offer">${offerHTML(t, 'checkout')}</div>` : ''}
+      ${SITE().customers.cashOnDelivery ? `<label class="pay-opt ${t.payment === 'cod' ? 'on' : ''}"><input type="radio" name="paymentMethod" value="cod" ${t.payment === 'cod' ? 'checked' : ''} data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>` : ''}
+      ${S.settings.cardPayments ? `<label class="pay-opt ${t.payment === 'card' ? 'on' : ''}"><input type="radio" name="paymentMethod" value="card" ${t.payment === 'card' ? 'checked' : ''} data-change="pay-pick"><div class="opt-main"><b>Pay online${t.offer && t.onlineDiscount > 0 ? ` <span class="save-badge">Save ${fmt(t.onlineDiscount)}</span>` : ''}</b><span>Card, JazzCash or Easypaisa, on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
       ${!SITE().customers.cashOnDelivery && !S.settings.cardPayments ? '<div class="note err">No payment option is available right now. Please try again later.</div>' : ''}
     </div>
   </div>
-  <div>${summaryHTML(t, `<div id="co-err"></div><button class="btn btn-primary btn-lg btn-block" type="submit" style="margin-top:16px">Place order</button>${t.code ? `<p class="small muted" style="margin-top:12px;text-align:center">Code ${esc(t.code)} applied.</p>` : ''}`, itemRows)}</div></form></div>`;
+  <div id="co-summary">${checkoutSummary(t, itemRows)}</div></form></div>`;
 }]);
+const checkoutSummary = (t, itemRows) => summaryHTML(t, `<div id="co-err"></div><button class="btn btn-primary btn-lg btn-block" type="submit" style="margin-top:16px">Place order &middot; ${fmt(t.total)}</button>${t.code ? `<p class="small muted" style="margin-top:12px;text-align:center">Code ${esc(t.code)} applied.</p>` : ''}`, itemRows);
+// Re-price the checkout after the customer changes delivery or payment, without losing what they typed
+async function refreshCheckout() {
+  const lines = cart.lines();
+  const box = $('#co-summary');
+  if (!box || !lines.length) return;
+  const t = await totals(lines);
+  const itemRows = $('#order-summary > div', box) ? $('#order-summary > div', box).outerHTML : '';
+  box.innerHTML = checkoutSummary(t, itemRows);
+  const offer = $('#co-offer');
+  if (offer) offer.innerHTML = offerHTML(t, 'checkout');
+  $$('input[name="delivery"]').forEach(i => { const o = t.deliveryOptions.find(x => x.key === i.value); if (o) $('.opt-fee', i.closest('label')).textContent = feeText(o.fee); });
+}
 
 // ORDER CONFIRMATION (live status from the server; guests use the token saved at checkout)
 function paymentNote(o) {
@@ -617,6 +653,8 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
     <div class="box"><h3>Items</h3>${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
       <div class="sum-row" style="margin-top:10px;border-top:1px solid var(--line);padding-top:14px"><span>Subtotal</span><span>${fmt(o.subtotal)}</span></div>
       ${o.discount ? `<div class="sum-row disc"><span>Code ${esc(o.couponCode)}</span><span>&minus;${fmt(o.discount)}</span></div>` : ''}
+      <div class="sum-row"><span>Delivery${o.deliveryName ? ` <span class="muted">&middot; ${esc(o.deliveryName)}</span>` : ''}</span><span>${feeText(o.deliveryFee)}</span></div>
+      ${o.prepaidDiscount ? `<div class="sum-row disc"><span>Online payment discount</span><span>&minus;${fmt(o.prepaidDiscount)}</span></div>` : ''}
       <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
     <div class="box"><h3>Delivering to</h3><p>${esc(o.shipping.name)}<br>${esc(o.shipping.address)}<br>${esc(o.shipping.city)}${o.shipping.province ? ', ' + esc(o.shipping.province) : ''}<br>${esc(o.shipping.phone)}</p></div>
     <div class="box"><h3>What happens next</h3><ol class="next-steps">
@@ -652,6 +690,9 @@ function trackResultHTML(o) {
     ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
     ${o.dispatchedAt ? `<p class="muted">Dispatched ${fdate(o.dispatchedAt)}${o.courier ? ` with <b>${esc(o.courier)}</b>` : ''}${o.trackingNumber ? `, tracking number <b>${esc(o.trackingNumber)}</b>` : ''}.</p>` : ''}
     <div style="margin-top:16px">${o.items.map(i => `<div class="sum-row"><span>${esc(i.name)} <span class="muted">&times; ${i.qty}</span></span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
+    ${o.discount ? `<div class="sum-row disc"><span>Code ${esc(o.couponCode)}</span><span>&minus;${fmt(o.discount)}</span></div>` : ''}
+    ${o.deliveryFee ? `<div class="sum-row"><span>Delivery</span><span>${fmt(o.deliveryFee)}</span></div>` : ''}
+    ${o.prepaidDiscount ? `<div class="sum-row disc"><span>Online payment discount</span><span>&minus;${fmt(o.prepaidDiscount)}</span></div>` : ''}
     <div class="sum-row total"><span>Total</span><span>${fmt(o.total)}</span></div></div>
     <p class="small muted" style="margin-top:14px">Delivering to ${esc(o.shipping.city)}${o.shipping.province ? ', ' + esc(o.shipping.province) : ''}.</p></div>`;
 }
@@ -858,6 +899,12 @@ const actions = {
     tile.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
     tile.classList.remove('flash'); void tile.offsetWidth; tile.classList.add('flash');
   },
+  'pick-online': () => {
+    const card = $('input[name="paymentMethod"][value="card"]');
+    if (!card) return;
+    card.checked = true;
+    return changes['pay-pick'](card);
+  },
   'add-bundle': el => { cart.add('bundle', el.dataset.id, 1); toast('Bundle added to your bag', { link: '/cart', linkText: 'View bag' }); },
   'cart-qty': async el => {
     const b = cart.bag(el.dataset.type), q = (b[el.dataset.key] || 0) + Number(el.dataset.d);
@@ -939,17 +986,17 @@ const forms = {
     const f = Object.fromEntries(new FormData(form));
     try {
       const { order, checkoutUrl } = await api('/api/orders', { method: 'POST', body: {
-        ...cart.payload(), couponCode, paymentMethod: f.paymentMethod,
+        ...cart.payload(), couponCode, paymentMethod: f.paymentMethod, delivery: f.delivery,
         shipping: { name: f.name, phone: f.phone, email: f.email, address: f.address, city: f.city, province: f.province, notes: f.notes }
       } });
       if (checkoutUrl) {
-        cart.clear(); couponCode = '';
+        cart.clear(); couponCode = ''; pick.payment = ''; pick.delivery = '';
         btn.textContent = 'Opening secure payment...';
         window.location.href = checkoutUrl;
         return;
       }
       orderTokens.set(order.orderNumber, order.accessToken);
-      cart.clear(); couponCode = '';
+      cart.clear(); couponCode = ''; pick.payment = ''; pick.delivery = '';
       go('/order/' + order.orderNumber);
     } catch (e) {
       err.innerHTML = `<div class="note err">${esc(e.message)}</div>`;
@@ -978,7 +1025,16 @@ const changes = {
     const s = p.toString();
     go(box.dataset.base + (s ? '?' + s : ''));
   },
-  'pay-pick': () => $$('.pay-opt').forEach(o => o.classList.toggle('on', $('input', o).checked))
+  'pay-pick': el => {
+    $$('input[name="paymentMethod"]').forEach(i => i.closest('.pay-opt').classList.toggle('on', i.checked));
+    pick.payment = el.value;
+    return refreshCheckout();
+  },
+  'delivery-pick': el => {
+    $$('input[name="delivery"]').forEach(i => i.closest('.pay-opt').classList.toggle('on', i.checked));
+    pick.delivery = el.value;
+    return refreshCheckout();
+  }
 };
 document.addEventListener('input', ev => {
   if (ev.target.id !== 'p-email' || !S.user) return;

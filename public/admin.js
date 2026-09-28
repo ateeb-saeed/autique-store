@@ -42,6 +42,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
     if(btn.dataset.tab === 'dashboard') loadDashboard();
     if(btn.dataset.tab === 'site') loadSiteEditor();
+    if(btn.dataset.tab === 'charges') loadCharges();
   });
 });
 
@@ -626,7 +627,7 @@ async function loadOrders(){
       <td>${o.orderNumber}</td>
       <td>${o.customerName}<br><span style="color:var(--copper-dim);font-size:0.8rem">${o.customerEmail}</span></td>
       <td>${o.items.map(i => `${i.qty}&times; ${i.name}`).join('<br>')}</td>
-      <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}</td>
+      <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}${o.deliveryFee ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Delivery ${money(o.deliveryFee)}${o.deliveryOption ? ` (${esc(o.deliveryOption.name)})` : ''}</span>` : o.deliveryOption ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Free delivery (${esc(o.deliveryOption.name)})</span>` : ''}${o.prepaidDiscount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Online discount &minus;${money(o.prepaidDiscount)}</span>` : ''}</td>
       <td>${o.paymentMethod === 'cod' ? 'Cash on delivery' : `Online (Rapid Gateway)${o.rgPaymentId ? `<br><span class="mono" style="color:var(--copper-dim);font-size:0.78rem">${o.rgPaymentId}</span>` : ''}${o.rgNote ? `<br><span style="color:var(--danger);font-size:0.78rem">${o.rgNote}</span>` : ''}`}</td>
       <td>
         <select class="status-select">
@@ -698,3 +699,166 @@ function escapeAttr(str){
 }
 
 checkAdmin();
+
+// ---------- Delivery & payment: delivery rate schedules + online-payment discount ----------
+// Dates are entered and shown in Pakistan time (UTC+5, no daylight saving).
+let charges = null, currentScheduleId = null, chargesNowAt = null;
+const PKT_MS = 5 * 3600 * 1000;
+const toPktInput = iso => iso ? new Date(Date.parse(iso) + PKT_MS).toISOString().slice(0, 16) : '';
+const fromPktInput = v => v ? new Date(v + ':00+05:00').toISOString() : '';
+const fmtPkt = iso => new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' PKT';
+const feeLabel = fee => Number(fee) > 0 ? money(fee) : 'Free';
+const tiersText = tiers => tiers.map((t, i) => i === 0 && tiers.length === 1 ? feeLabel(t.fee)
+  : `${t.min > 0 ? `from ${money(t.min)}` : 'under ' + money(tiers[1] ? tiers[1].min : 0)}: ${feeLabel(t.fee)}`).join(' · ');
+
+async function loadCharges(){
+  try { applyCharges(await api('/api/admin/charges')); }
+  catch (e) { toast(e.message, true); }
+}
+function applyCharges(data){
+  charges = data.charges; currentScheduleId = data.currentScheduleId; chargesNowAt = Date.parse(data.now);
+  document.getElementById('prepaidGatewayNote').classList.toggle('hidden', !!data.payOnlineConfigured);
+  renderChargesNow(); renderSchedules(); fillPrepaidForm();
+}
+function renderChargesNow(){
+  const cur = charges.delivery.schedules.find(s => s.id === currentScheduleId);
+  const next = charges.delivery.schedules.filter(s => Date.parse(s.effectiveFrom) > chargesNowAt).sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))[0];
+  const p = charges.prepaid;
+  const prepaidOn = p.enabled && p.value > 0 && (!p.startsAt || Date.parse(p.startsAt) <= chargesNowAt) && (!p.endsAt || Date.parse(p.endsAt) > chargesNowAt);
+  document.getElementById('chargesNow').innerHTML = `<div class="charges-now">
+    <div><b>Delivery now</b><span>${cur ? cur.options.filter(o => o.active).map(o => `${esc(o.name)}: ${tiersText(o.tiers)}`).join('<br>') : 'Free delivery (no rate schedule has started yet)'}</span>
+      ${next ? `<span class="sub">New rates start ${fmtPkt(next.effectiveFrom)}</span>` : ''}</div>
+    <div><b>Online-payment discount now</b><span>${prepaidOn ? (p.type === 'fixed' ? `${money(p.value)} off` : `${p.value}% off${p.maxDiscount ? `, up to ${money(p.maxDiscount)}` : ''}`) + (p.minOrder ? ` on orders from ${money(p.minOrder)}` : '') : 'Off'}</span></div>
+  </div>`;
+}
+function renderSchedules(){
+  const list = charges.delivery.schedules.slice().sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  document.querySelector('#schedTable tbody').innerHTML = list.map(s => {
+    const status = s.id === currentScheduleId ? '<span class="badge on">In effect</span>'
+      : Date.parse(s.effectiveFrom) > chargesNowAt ? '<span class="badge">Scheduled</span>' : '<span class="badge off">Replaced</span>';
+    return `<tr><td><b>${fmtPkt(s.effectiveFrom)}</b>${s.label ? `<br><span class="sub">${esc(s.label)}</span>` : ''}</td>
+      <td>${s.options.map(o => `<div${o.active ? '' : ' class="sub"'}><b>${esc(o.name)}</b>${o.active ? '' : ' (not offered)'}: ${tiersText(o.tiers)}</div>`).join('')}</td>
+      <td>${status}</td>
+      <td style="white-space:nowrap"><button class="btn-secondary btn-small" data-sched-edit="${esc(s.id)}">Edit</button> <button class="btn-danger btn-small" data-sched-del="${esc(s.id)}">Delete</button></td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="sub">No delivery charges yet: every order has free delivery. Click "New rate schedule" to add charges.</td></tr>';
+  document.querySelectorAll('[data-sched-edit]').forEach(b => b.addEventListener('click', () => openScheduleEditor(charges.delivery.schedules.find(s => s.id === b.dataset.schedEdit))));
+  document.querySelectorAll('[data-sched-del]').forEach(b => b.addEventListener('click', async () => {
+    const s = charges.delivery.schedules.find(x => x.id === b.dataset.schedDel);
+    if (!confirm(`Delete the rate schedule starting ${fmtPkt(s.effectiveFrom)}?`)) return;
+    await saveCharges({ ...charges, delivery: { schedules: charges.delivery.schedules.filter(x => x.id !== s.id) } }, 'Rate schedule deleted.');
+  }));
+}
+async function saveCharges(cfg, message){
+  try { applyCharges(await api('/api/admin/charges', 'PUT', cfg)); toast(message); return true; }
+  catch (e) { toast(e.message, true); return false; }
+}
+
+// --- rate schedule editor ---
+function openScheduleEditor(existing){
+  const cur = charges.delivery.schedules.find(s => s.id === currentScheduleId);
+  const nextHour = new Date(Math.ceil(Date.now() / 3600000) * 3600000).toISOString();
+  const s = existing ? JSON.parse(JSON.stringify(existing)) : {
+    id: '', label: '', effectiveFrom: nextHour,
+    options: cur ? JSON.parse(JSON.stringify(cur.options)) : [
+      { key: 'standard', name: 'Standard delivery', description: 'PostEx (Call Courier), 2 to 5 working days', active: true, tiers: [{ min: 0, fee: 250 }, { min: 3000, fee: 0 }] }
+    ]
+  };
+  const ed = document.getElementById('schedEditor');
+  ed.classList.remove('hidden');
+  ed.innerHTML = `<h3 style="margin:0 0 14px">${existing ? 'Edit rate schedule' : 'New rate schedule'}</h3>
+    <div class="row-2">
+      <label>Takes effect (PKT)<input type="datetime-local" id="se-from" value="${toPktInput(s.effectiveFrom)}" required></label>
+      <label>Name for your reference (optional)<input type="text" id="se-label" value="${escapeAttr(s.label || '')}" placeholder="e.g. New PostEx rates, October"></label>
+    </div>
+    <div id="se-options"></div>
+    <button type="button" class="btn-secondary btn-small" id="se-add-opt">+ Add delivery option</button>
+    <p class="error-text" id="se-error"></p>
+    <div style="display:flex;gap:10px;margin-top:8px"><button type="button" class="btn-primary" id="se-save">Save rate schedule</button><button type="button" class="btn-secondary" id="se-cancel">Cancel</button></div>`;
+  const box = document.getElementById('se-options');
+  const optionHTML = o => `<div class="se-opt">
+      <div class="row-2">
+        <label>Delivery option<input type="text" class="se-name" value="${escapeAttr(o.name)}" placeholder="e.g. Standard delivery" maxlength="60"></label>
+        <label>Short description (optional)<input type="text" class="se-desc" value="${escapeAttr(o.description || '')}" placeholder="e.g. 2 to 5 working days" maxlength="140"></label>
+      </div>
+      <input type="hidden" class="se-key" value="${escapeAttr(o.key || '')}">
+      <label class="toggle-row"><input type="checkbox" class="se-active" ${o.active !== false ? 'checked' : ''}><span>Offer this option to customers</span></label>
+      <table class="data-table se-tiers"><thead><tr><th>Order value from (Rs.)</th><th>Delivery charge (Rs., 0 = free)</th><th></th></tr></thead><tbody>
+        ${o.tiers.map((t, i) => tierRow(t, i === 0)).join('')}</tbody></table>
+      <div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn-secondary btn-small se-add-tier">+ Add tier</button><button type="button" class="btn-danger btn-small se-del-opt">Remove option</button></div>
+    </div>`;
+  box.innerHTML = s.options.map(optionHTML).join('');
+  const wire = () => {
+    box.querySelectorAll('.se-add-tier').forEach(b => b.onclick = () => {
+      const body = b.closest('.se-opt').querySelector('tbody');
+      const last = [...body.querySelectorAll('.se-min')].map(i => Number(i.value) || 0).pop() || 0;
+      body.insertAdjacentHTML('beforeend', tierRow({ min: last + 1000, fee: 0 }, false)); wire();
+    });
+    box.querySelectorAll('.se-del-tier').forEach(b => b.onclick = () => { b.closest('tr').remove(); });
+    box.querySelectorAll('.se-del-opt').forEach(b => b.onclick = () => { if (box.querySelectorAll('.se-opt').length > 1) b.closest('.se-opt').remove(); else toast('Keep at least one delivery option.', true); });
+  };
+  wire();
+  document.getElementById('se-add-opt').onclick = () => { box.insertAdjacentHTML('beforeend', optionHTML({ name: '', description: '', active: true, tiers: [{ min: 0, fee: 0 }] })); wire(); };
+  document.getElementById('se-cancel').onclick = () => { ed.classList.add('hidden'); ed.innerHTML = ''; };
+  document.getElementById('se-save').onclick = async () => {
+    const from = document.getElementById('se-from').value;
+    const err = document.getElementById('se-error');
+    if (!from) { err.textContent = 'Choose the date and time the new charges take effect.'; return; }
+    const sched = {
+      id: s.id, label: document.getElementById('se-label').value, effectiveFrom: fromPktInput(from),
+      options: [...box.querySelectorAll('.se-opt')].map(el => ({
+        key: el.querySelector('.se-key').value, name: el.querySelector('.se-name').value, description: el.querySelector('.se-desc').value,
+        active: el.querySelector('.se-active').checked,
+        tiers: [...el.querySelectorAll('tbody tr')].map(tr => ({ min: tr.querySelector('.se-min').value, fee: tr.querySelector('.se-fee').value }))
+      }))
+    };
+    const others = charges.delivery.schedules.filter(x => x.id !== s.id);
+    if (others.some(x => x.effectiveFrom === sched.effectiveFrom)) { err.textContent = 'Another rate schedule already starts at that exact time.'; return; }
+    err.textContent = '';
+    if (await saveCharges({ ...charges, delivery: { schedules: [...others, sched] } }, Date.parse(sched.effectiveFrom) > Date.now() ? `Saved. The new charges start ${fmtPkt(sched.effectiveFrom)}.` : 'Saved. The new charges are in effect now.')) {
+      ed.classList.add('hidden'); ed.innerHTML = '';
+    }
+  };
+  ed.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function tierRow(t, first){
+  return `<tr><td><input type="number" class="se-min" min="0" value="${Number(t.min) || 0}" ${first ? 'readonly title="The first tier always starts at Rs. 0"' : ''}></td>
+    <td><input type="number" class="se-fee" min="0" value="${Number(t.fee) || 0}"></td>
+    <td>${first ? '' : '<button type="button" class="icon-btn danger se-del-tier" aria-label="Remove tier">&times;</button>'}</td></tr>`;
+}
+document.getElementById('newSchedBtn').addEventListener('click', () => openScheduleEditor(null));
+
+// --- online-payment discount ---
+const prepaidForm = document.getElementById('prepaidForm');
+function fillPrepaidForm(){
+  const p = charges.prepaid, f = prepaidForm;
+  f.enabled.checked = !!p.enabled; f.type.value = p.type; f.value.value = p.value || '';
+  f.maxDiscount.value = p.maxDiscount || ''; f.minOrder.value = p.minOrder || ''; f.headline.value = p.headline || '';
+  f.startsAt.value = toPktInput(p.startsAt); f.endsAt.value = toPktInput(p.endsAt);
+  updatePrepaidPreview();
+}
+function updatePrepaidPreview(){
+  const f = prepaidForm, fixed = f.type.value === 'fixed', v = Number(f.value.value) || 0;
+  document.getElementById('prepaidValueLabel').textContent = fixed ? 'Discount (Rs.)' : 'Discount (%)';
+  document.getElementById('prepaidMaxWrap').classList.toggle('hidden', fixed);
+  const what = fixed ? `${money(v)} off` : `${v}% off`;
+  const headline = f.headline.value.trim() || `Pay online and get ${what} your order`;
+  const example = 5000;
+  let save = fixed ? Math.min(v, example) : Math.round(example * v / 100);
+  if (!fixed && Number(f.maxDiscount.value) > 0) save = Math.min(save, Number(f.maxDiscount.value));
+  if (Number(f.minOrder.value) > example) save = 0;
+  document.getElementById('prepaidPreview').innerHTML = f.enabled.checked && v > 0
+    ? `<span class="sub">What customers see (for a ${money(example)} order):</span><div class="offer-demo"><b>${esc(headline)}</b><span>Save <strong>${money(save)}</strong> on this order when you pay online.</span></div>`
+    : '<span class="sub">Switched off: customers see no online-payment discount.</span>';
+}
+prepaidForm.addEventListener('input', updatePrepaidPreview);
+prepaidForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = prepaidForm;
+  const prepaid = {
+    enabled: f.enabled.checked, type: f.type.value, value: f.value.value, maxDiscount: f.maxDiscount.value, minOrder: f.minOrder.value,
+    headline: f.headline.value, startsAt: fromPktInput(f.startsAt.value), endsAt: fromPktInput(f.endsAt.value)
+  };
+  document.getElementById('prepaidError').textContent = '';
+  try { applyCharges(await api('/api/admin/charges', 'PUT', { ...charges, prepaid })); toast(prepaid.enabled ? 'Discount saved. It is applied automatically to online payments.' : 'Discount switched off.'); }
+  catch (err) { document.getElementById('prepaidError').textContent = err.message; }
+});

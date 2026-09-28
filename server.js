@@ -11,6 +11,7 @@ const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./
 const gateway = require('./lib/rapidgateway');
 const google = require('./lib/google');
 const site = require('./lib/siteConfig');
+const charges = require('./lib/charges');
 const orderEmails = require('./lib/orderEmails');
 const mailer = require('./lib/mailer');
 const seo = require('./lib/seo');
@@ -394,6 +395,7 @@ app.get('/api/settings', (req, res) => {
     cardPayments: gateway.configured && cfg.customers.payOnline,
     googleClientId: cfg.customers.allowGoogle ? google.clientId : '',
     emailUpdates: mailer.configured(),
+    prepaidOffer: gateway.configured && cfg.customers.payOnline ? charges.prepaidOffer() : null,
     site: { content: cfg.content, sections: cfg.sections, customers: cfg.customers }
   });
 });
@@ -415,6 +417,16 @@ function publicBundles() {
 }
 app.get('/api/bundles', (req, res) => res.json({ bundles: publicBundles() }));
 
+// Delivery options, delivery fee and the online-payment discount for a basket
+// (the order itself is always priced again on the server).
+app.post('/api/checkout/quote', (req, res) => {
+  const b = req.body || {};
+  const payOnline = gateway.configured && site.get().customers.payOnline;
+  const q = charges.quote({ subtotal: b.subtotal, couponDiscount: b.discount, paymentMethod: payOnline ? b.paymentMethod : 'cod', deliveryKey: b.delivery });
+  if (!payOnline) { q.offer = null; q.onlineDiscount = 0; }
+  res.json(q);
+});
+
 app.post('/api/coupons/validate', (req, res) => {
   const { code, subtotal } = req.body || {};
   const coupon = findCoupon(store.getCoupons(), code);
@@ -430,7 +442,7 @@ app.post('/api/coupons/validate', (req, res) => {
 // Anyone can check out, signed in or not. Guests give an email; they can create
 // an account afterwards from the confirmation page (see /api/orders/:n/account).
 app.post('/api/orders', async (req, res) => {
-  const { items, variants: variantItems, bundles: bundleItems, couponCode, paymentMethod, shipping } = req.body || {};
+  const { items, variants: variantItems, bundles: bundleItems, couponCode, paymentMethod, shipping, delivery } = req.body || {};
   const hasItems = Array.isArray(items) && items.length > 0;
   const hasVariants = Array.isArray(variantItems) && variantItems.length > 0;
   const hasBundles = Array.isArray(bundleItems) && bundleItems.length > 0;
@@ -501,7 +513,10 @@ app.post('/api/orders', async (req, res) => {
     }
   }
 
-  const total = Math.max(0, subtotal - discount);
+  // delivery charge and online-payment discount, as set in admin → Delivery & payment
+  const priced = charges.quote({ subtotal, couponDiscount: discount, paymentMethod, deliveryKey: delivery });
+  if (delivery && priced.delivery.key !== delivery) return res.status(400).json({ error: 'That delivery option is no longer available. Please choose another.' });
+  const total = priced.total;
   const orders = store.getOrders();
 
   const order = {
@@ -514,6 +529,9 @@ app.post('/api/orders', async (req, res) => {
     subtotal,
     discount,
     couponCode: appliedCode,
+    deliveryOption: { key: priced.delivery.key, name: priced.delivery.name },
+    deliveryFee: priced.deliveryFee,
+    prepaidDiscount: priced.prepaidDiscount,
     total,
     paymentMethod,
     accessToken: crypto.randomBytes(16).toString('hex'),
@@ -571,6 +589,7 @@ function publicOrder(o) {
     orderNumber: o.orderNumber, customerName: o.customerName, customerEmail: o.customerEmail,
     items: o.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
     subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
+    deliveryFee: o.deliveryFee || 0, deliveryName: (o.deliveryOption && o.deliveryOption.name) || '', prepaidDiscount: o.prepaidDiscount || 0,
     paymentMethod: o.paymentMethod, paymentStatus: paymentState(o),
     status: o.status, createdAt: o.createdAt, shipping: o.shipping,
     dispatchedAt: o.dispatchedAt || null, courier: o.courier || '', trackingNumber: o.trackingNumber || '',
@@ -649,6 +668,7 @@ app.get('/api/my-orders', requireCustomer, (req, res) => {
     .map(o => ({
       orderNumber: o.orderNumber, items: o.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
       subtotal: o.subtotal, discount: o.discount, couponCode: o.couponCode, total: o.total,
+      deliveryFee: o.deliveryFee || 0, deliveryName: (o.deliveryOption && o.deliveryOption.name) || '', prepaidDiscount: o.prepaidDiscount || 0,
       paymentMethod: o.paymentMethod, paymentStatus: paymentState(o),
       status: o.status, createdAt: o.createdAt,
       courier: o.courier || '', trackingNumber: o.trackingNumber || '', trackingId: o.trackingId || ''
@@ -1041,6 +1061,21 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
   };
   store.saveSettings(updated);
   res.json({ settings: updated });
+});
+
+// =========================================================
+// Admin: delivery charges and the online-payment discount
+// =========================================================
+function chargesView(cfg) {
+  const current = charges.scheduleAt(cfg);
+  return { charges: cfg, currentScheduleId: current ? current.id : null, now: new Date().toISOString(), payOnlineConfigured: gateway.configured && site.get().customers.payOnline };
+}
+app.get('/api/admin/charges', requireAdmin, (req, res) => res.json(chargesView(charges.load())));
+app.put('/api/admin/charges', requireAdmin, (req, res) => {
+  const result = charges.sanitize(req.body);
+  if (result.error) return res.status(400).json({ error: result.error });
+  charges.save(result.cfg);
+  res.json(chargesView(result.cfg));
 });
 
 // =========================================================

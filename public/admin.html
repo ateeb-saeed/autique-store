@@ -6,6 +6,9 @@
 <title>Autique Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/admin-favicon-32.png?v=2">
 <link rel="manifest" href="/manifest-admin.webmanifest?v=2">
 <link rel="apple-touch-icon" href="/icons/admin-apple-touch-icon.png?v=2">
@@ -14,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="autique admin">
-<link rel="stylesheet" href="/admin.css?v=16">
+<link rel="stylesheet" href="/admin.css?v=17">
 </head>
 <body>
 
@@ -46,6 +49,7 @@
       <button class="nav-btn" data-tab="coupons">Coupons</button>
       <button class="nav-btn" data-tab="bundles">Bundles</button>
       <button class="nav-btn" data-tab="sale">Sale</button>
+      <button class="nav-btn" data-tab="charges">Delivery &amp; payment</button>
       <button class="nav-btn" data-tab="orders">Orders</button>
       <button class="nav-btn" data-tab="site">Site editor</button>
       <button class="nav-btn" data-tab="settings">Admin settings</button>
@@ -249,6 +253,42 @@
       </form>
     </section>
 
+    <!-- Delivery charges + online-payment discount -->
+    <section class="tab-panel hidden" id="tab-charges">
+      <div class="panel-head"><h2>Delivery &amp; payment</h2></div>
+      <p class="panel-sub">Delivery charges and the online-payment discount are added to every website order automatically. All dates and times are Pakistan time (PKT).</p>
+      <div id="chargesNow"></div>
+
+      <div class="panel-head" style="margin-top:28px"><h3 style="margin:0">Delivery charges</h3>
+        <div class="panel-head-actions"><button class="btn-primary" id="newSchedBtn" type="button">New rate schedule</button></div></div>
+      <p class="hint-text" style="margin:6px 0 14px">Each rate schedule starts at the date and time you choose and stays in force until the next one starts, so you can set up new rates in advance. Charges go by order value (items after any discount code): the highest tier the order reaches applies.</p>
+      <div class="tbl-wrap"><table class="data-table" id="schedTable"><thead><tr><th>Takes effect</th><th>Delivery options and charges</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div id="schedEditor" class="charges-editor hidden"></div>
+
+      <div class="panel-head" style="margin-top:34px"><h3 style="margin:0">Online (advance) payment discount</h3></div>
+      <p class="hint-text" style="margin:6px 0 14px">Taken off automatically when the customer pays online. Customers see it in a highlighted box in their bag and at checkout, and on the "Pay online" option.</p>
+      <form class="settings-form" id="prepaidForm">
+        <p class="note err hidden" id="prepaidGatewayNote">Online payments are not switched on, so customers won't see this discount until they are.</p>
+        <label class="toggle-row"><input type="checkbox" name="enabled"><span>Give a discount for paying online</span></label>
+        <div class="row-2">
+          <label>Discount type<select name="type"><option value="percent">Percentage of the order</option><option value="fixed">Fixed amount (Rs.)</option></select></label>
+          <label><span id="prepaidValueLabel">Discount (%)</span><input type="number" name="value" min="0" step="0.5"></label>
+        </div>
+        <div class="row-2">
+          <label id="prepaidMaxWrap">Most it can take off (Rs., optional)<input type="number" name="maxDiscount" min="0" placeholder="No limit"></label>
+          <label>Minimum order value (Rs., optional)<input type="number" name="minOrder" min="0" placeholder="None"></label>
+        </div>
+        <label>Headline customers see (optional)<input type="text" name="headline" maxlength="120" placeholder="e.g. Pay online and get 5% off your order"></label>
+        <div class="row-2">
+          <label>Starts (optional)<input type="datetime-local" name="startsAt"></label>
+          <label>Ends (optional)<input type="datetime-local" name="endsAt"></label>
+        </div>
+        <div class="offer-preview" id="prepaidPreview"></div>
+        <p class="error-text" id="prepaidError"></p>
+        <button type="submit" class="btn-primary">Save discount</button>
+      </form>
+    </section>
+
     <!-- Orders -->
     <section class="tab-panel hidden" id="tab-orders">
       <div class="panel-head"><h2>Orders</h2></div>
@@ -318,7 +358,7 @@
   </form>
 </div>
 
-<script src="/admin.js?v=19"></script>
+<script src="/admin.js?v=20"></script>
 <script src="/admin-dashboard.js?v=15"></script>
 <script src="/admin-site.js?v=16"></script>
 <script src="/portal-app.js?v=15" data-app-name="autique admin" data-icon="/icons/admin-192.png?v=2" data-sw="/admin/sw.js"></script>
