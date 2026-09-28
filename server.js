@@ -4,6 +4,7 @@ const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const compression = require('compression');
 
 const store = require('./lib/store');
 const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./lib/pricing');
@@ -12,6 +13,8 @@ const google = require('./lib/google');
 const site = require('./lib/siteConfig');
 const orderEmails = require('./lib/orderEmails');
 const mailer = require('./lib/mailer');
+const seo = require('./lib/seo');
+const mountPages = require('./lib/pages');
 const catalog = require('./lib/catalog');
 const { catalogPlan, applyCatalog, labelOf } = require('./lib/catalogImport');
 const TYPE_KEYS = catalog.TYPES.map(t => t.key);
@@ -21,6 +24,20 @@ store.seed();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// One canonical address for search engines: http -> https and www.autique.pk ->
+// autique.pk (301). Only GET/HEAD requests to the real domain are redirected, so
+// localhost, Railway's own domain and webhook POSTs are left alone.
+const CANONICAL_HOST = new URL(seo.SITE_URL).host;
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const host = String(req.get('host') || '').toLowerCase();
+  if (host.replace(/^www\./, '') !== CANONICAL_HOST) return next();
+  const proto = String(req.get('x-forwarded-proto') || req.protocol).split(',')[0].trim();
+  if (host !== CANONICAL_HOST || proto !== 'https') return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
+  next();
+});
+app.use(compression());
 
 const UPLOADS_DIR = path.join(__dirname, 'data', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -104,6 +121,7 @@ for (const [name, file] of Object.entries(PORTALS)) {
   // the app's scope needs the trailing slash.
   app.get(`/${name}`, (req, res) => {
     if (!req.path.endsWith('/')) return res.redirect(301, `/${name}/`);
+    res.set('X-Robots-Tag', 'noindex');
     res.sendFile(path.join(__dirname, 'public', file));
   });
   app.get(`/${name}/sw.js`, (req, res) => {
@@ -111,8 +129,20 @@ for (const [name, file] of Object.entries(PORTALS)) {
     res.sendFile(path.join(__dirname, 'public', 'portal-sw.js'));
   });
 }
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOADS_DIR));
+// Cache: versioned CSS/JS (?v=) and uploads (unique names) for a year, photos and
+// icons for 30 days, and pages, service workers and manifests always re-checked.
+const YEAR = 'public, max-age=31536000, immutable';
+function staticCache(res, file) {
+  const ext = path.extname(file).toLowerCase();
+  const versioned = res.req && res.req.query && res.req.query.v;
+  if (ext === '.html' || ext === '.webmanifest' || /sw\.js$/.test(file)) res.set('Cache-Control', 'no-cache');
+  else if (ext === '.js' || ext === '.css') res.set('Cache-Control', versioned ? YEAR : 'public, max-age=3600');
+  else res.set('Cache-Control', 'public, max-age=2592000');
+}
+app.get('/index.html', (req, res) => res.redirect(301, '/'));
+app.use(['/admin', '/logistics', '/admin.html', '/logistics.html'], (req, res, next) => { res.set('X-Robots-Tag', 'noindex'); next(); });
+app.use(express.static(path.join(__dirname, 'public'), { index: false, setHeaders: staticCache }));
+app.use('/uploads', express.static(UPLOADS_DIR, { setHeaders: res => res.set('Cache-Control', YEAR) }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'autique-dev-secret-change-me',
   resave: false,
@@ -292,7 +322,8 @@ app.post('/api/admin/logistics-password', requireAdmin, (req, res) => {
 // =========================================================
 // Storefront (public) catalog — includes sale pricing
 // =========================================================
-app.get('/api/products', (req, res) => {
+// The public catalogue (active products, sale prices applied), used by the API and the pages
+function publicCatalog() {
   const settings = store.getSettings();
   const categories = store.getCategories();
   const products = store.getProducts().filter(p => p.active);
@@ -351,8 +382,9 @@ app.get('/api/products', (req, res) => {
   })).filter(cat => cat.products.length > 0);
 
   const usedTypes = new Set(result.flatMap(c => c.products.map(p => p.type)).filter(Boolean));
-  res.json({ categories: result, types: catalog.TYPES.filter(t => usedTypes.has(t.key)) });
-});
+  return { categories: result, types: catalog.TYPES.filter(t => usedTypes.has(t.key)) };
+}
+app.get('/api/products', (req, res) => res.json(publicCatalog()));
 
 app.get('/api/settings', (req, res) => {
   const s = store.getSettings();
@@ -366,7 +398,7 @@ app.get('/api/settings', (req, res) => {
   });
 });
 
-app.get('/api/bundles', (req, res) => {
+function publicBundles() {
   const settings = store.getSettings();
   const products = store.getProducts();
   const bundles = store.getBundles().filter(b => b.active);
@@ -379,8 +411,9 @@ app.get('/api/bundles', (req, res) => {
     const individualTotal = items.reduce((sum, p) => sum + p.price, 0);
     return { id: b.id, title: b.title, desc: b.desc, bundlePrice: b.bundlePrice, items, individualTotal };
   });
-  res.json({ bundles: result });
-});
+  return result;
+}
+app.get('/api/bundles', (req, res) => res.json({ bundles: publicBundles() }));
 
 app.post('/api/coupons/validate', (req, res) => {
   const { code, subtotal } = req.body || {};
@@ -1408,6 +1441,9 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
     }))
   });
 });
+
+// Storefront pages, sitemap and robots.txt (after every API route)
+mountPages(app, { publicCatalog, publicBundles });
 
 app.listen(PORT, () => {
   console.log(`Autique store running at http://localhost:${PORT}`);

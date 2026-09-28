@@ -11,7 +11,21 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => 'Rs. ' + Math.round(Number(n) || 0).toLocaleString('en-US');
 const fdate = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const go = h => { location.hash = h; };
+// Navigation uses real paths (History API). A redirect made while a page is
+// rendering replaces the history entry, so Back doesn't bounce into it again.
+let rendering = false;
+const go = h => {
+  if (h !== location.pathname + location.search) history[rendering ? 'replaceState' : 'pushState'](null, '', h);
+  route();
+};
+const slug = t => String(t || '').toLowerCase().normalize('NFKD').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+const productPath = p => `/product/${p.id}-${slug(p.name)}`;
+// Old links used #/ routes (emails, bookmarks, the app's start page): map them to real paths
+function legacyPath(h) {
+  const qi = h.indexOf('?'), path = qi < 0 ? h : h.slice(0, qi), query = qi < 0 ? '' : h.slice(qi);
+  const m = /^\/shop\/([\w-]+)$/.exec(path);
+  return (m ? '/category/' + m[1] : path || '/') + query;
+}
 
 async function api(url, opts = {}) {
   const o = { credentials: 'same-origin', method: opts.method || 'GET', headers: {} };
@@ -56,11 +70,11 @@ let payPoll = null;
 function payBannerHTML() {
   if (!returnedOrder) return '';
   const n = esc(returnedOrder);
-  const track = SITE().customers.allowOrderTracking ? ` or <a class="link" href="#/track?n=${n}">Track your order</a>` : '';
+  const track = SITE().customers.allowOrderTracking ? ` or <a class="link" href="/track?n=${n}">Track your order</a>` : '';
   const msg = payState === 'confirmed'
-    ? `Your order <b>${n}</b> is confirmed. See it under <a class="link" href="#/account">My orders</a>${track}.`
+    ? `Your order <b>${n}</b> is confirmed. See it under <a class="link" href="/account">My orders</a>${track}.`
     : payState === 'failed'
-      ? `The payment for order <b>${n}</b> didn't go through, and you haven't been charged. You can <a class="link" href="#/cart">try again</a>${SITE().customers.cashOnDelivery ? ', or choose cash on delivery at checkout' : ''}.`
+      ? `The payment for order <b>${n}</b> didn't go through, and you haven't been charged. You can <a class="link" href="/cart">try again</a>${SITE().customers.cashOnDelivery ? ', or choose cash on delivery at checkout' : ''}.`
       : `Your order <b>${n}</b> has been received.`;
   return `<div class="pay-banner${payState === 'failed' ? ' is-failed' : ''}" id="pay-banner" role="status" aria-live="polite"><p>${msg}</p><button class="pay-banner-close" data-act="dismiss-pay-banner" aria-label="Dismiss">&times;</button></div>`;
 }
@@ -118,7 +132,8 @@ function galleryHTML(title, intro) {
 }
 const paragraphs = text => String(text || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('');
 
-const imgOrIcon = src => src ? `<img src="${esc(src)}" alt="" loading="lazy">` : BOTTLE;
+const imgOrIcon = (src, alt = '', eager = false) => src ? `<img src="${esc(src)}" alt="${esc(alt)}" width="800" height="800"${eager ? '' : ' loading="lazy"'} decoding="async">` : BOTTLE;
+const altOf = name => `${name} – Autique`;
 const variantLabel = v => [v.color, v.size].filter(Boolean).join(' / ') || 'Standard';
 
 // ---------- cart (kept in the browser; the server re-prices every order) ----------
@@ -148,17 +163,17 @@ const cart = {
     const out = [];
     Object.entries(this.products).forEach(([id, qty]) => {
       const p = S.products.find(x => x.id === Number(id));
-      if (p && !p.hasVariants) out.push({ type: 'product', key: id, name: p.name, label: p.categoryTitle, image: p.image, href: `#/product/${p.id}`, price: p.price, was: p.originalPrice, qty });
+      if (p && !p.hasVariants) out.push({ type: 'product', key: id, name: p.name, label: p.categoryTitle, image: p.image, href: productPath(p), price: p.price, was: p.originalPrice, qty });
     });
     Object.entries(this.variants).forEach(([key, qty]) => {
       const [pid, vid] = key.split(':').map(Number);
       const p = S.products.find(x => x.id === pid);
       const v = p && (p.variants || []).find(x => x.id === vid);
-      if (v) out.push({ type: 'variant', key, name: p.name, label: variantLabel(v), image: v.image || p.image, href: `#/product/${p.id}?v=${v.id}`, price: v.price, was: v.originalPrice, qty });
+      if (v) out.push({ type: 'variant', key, name: p.name, label: variantLabel(v), image: v.image || p.image, href: `${productPath(p)}?v=${v.id}`, price: v.price, was: v.originalPrice, qty });
     });
     Object.entries(this.bundles).forEach(([id, qty]) => {
       const b = S.bundles.find(x => x.id === Number(id));
-      if (b) out.push({ type: 'bundle', key: id, name: b.title, label: 'Bundle: ' + b.items.map(i => i.name).join(', '), image: '', href: '#/bundles', price: b.bundlePrice, was: b.individualTotal, qty });
+      if (b) out.push({ type: 'bundle', key: id, name: b.title, label: 'Bundle: ' + b.items.map(i => i.name).join(', '), image: '', href: '/bundles', price: b.bundlePrice, was: b.individualTotal, qty });
     });
     return out;
   },
@@ -186,12 +201,12 @@ async function loadCatalog() {
 
 // ---------- chrome: drawer menu + footer ----------
 function renderChrome() {
-  const cur = location.hash.slice(1) || '/';
+  const cur = location.pathname + location.search;
   const link = (href, label, extra = '') => `<a href="#${href}" class="${cur === href ? 'on' : ''}">${esc(label)}${extra}</a>`;
   $('#drawer-links').innerHTML =
     link('/', 'Home') + link('/shop', 'Shop all')
     + `<div class="label">Shop by need</div>`
-    + S.categories.map(c => link('/shop/' + c.key, c.title, `<span class="count">${c.products.length}</span>`)).join('')
+    + S.categories.map(c => link('/category/' + c.key, c.title, `<span class="count">${c.products.length}</span>`)).join('')
     + (S.types.length ? `<div class="label">Shop by type</div>` + S.types.map(t => link('/shop?type=' + t.key, t.title, `<span class="count">${S.products.filter(p => p.type === t.key).length}</span>`)).join('') : '')
     + (SITE().sections.bundles && S.bundles.length ? link('/bundles', 'Bundles', `<span class="count">${S.bundles.length}</span>`) : '')
     + (S.settings.saleActive ? link('/shop?sale=1', 'Sale') : '')
@@ -209,20 +224,20 @@ function renderChrome() {
   const announcement = S.settings.saleActive && S.settings.saleLabel ? S.settings.saleLabel : SITE().content.announcement;
   $('#announce').textContent = announcement;
   $('#announce').hidden = !announcement;
-  $('#acct-btn').setAttribute('href', S.user ? '#/account' : '#/login');
+  $('#acct-btn').setAttribute('href', S.user ? '/account' : '/login');
   cart.badge();
   const biz = SITE().content.business;
   $('#footer').innerHTML = `<div class="container"><div class="foot">
-    <div><a class="foot-logo" href="#/"><img src="/icons/car-mark.png" alt="" class="foot-car"><img src="logo.png" alt="autique."></a><p style="margin-top:14px;max-width:34ch">${esc(SITE().content.footerTagline)}</p>
+    <div><a class="foot-logo" href="/"><img src="/icons/car-mark.png" alt="" class="foot-car" width="480" height="115" loading="lazy"><img src="/logo.png" alt="Autique" width="142" height="44" loading="lazy"></a><p style="margin-top:14px;max-width:34ch">${esc(SITE().content.footerTagline)}</p>
       <address class="foot-contact">
         ${biz.email ? `<a href="mailto:${esc(biz.email)}"><b>Email:</b> ${esc(biz.email)}</a>` : ''}
         ${biz.phone ? `<a href="${telHref(biz.phone)}"><b>Phone:</b> ${esc(biz.phone)}</a>` : ''}
         ${biz.address ? `<p><b>Address:</b> ${esc(biz.address)}</p>` : ''}
         ${biz.hours ? `<p><b>Hours:</b> ${esc(biz.hours)}</p>` : ''}
       </address></div>
-    <div><h4>Shop</h4>${S.categories.slice(0, 6).map(c => `<a href="#/shop/${esc(c.key)}">${esc(c.title)}</a>`).join('')}<a href="#/shop">All products</a></div>
-    <div><h4>Customer care</h4><a href="#/how-it-works">How Autique works</a>${SITE().customers.allowOrderTracking ? '<a href="#/track">Track your order</a>' : ''}<a href="#/account">My orders</a><a href="#/contact">Contact us</a>${SITE().sections.aboutPage ? '<a href="#/about">About us</a>' : ''}${isStandalone() ? '' : '<a href="#" data-act="install-app">Install the app</a>'}${SITE().content.footerHelp.map(h => `<p>${esc(h)}</p>`).join('')}</div>
-    <div><h4>Policies</h4>${Object.entries(POLICY_PAGES).map(([k, t]) => `<a href="#/policies/${k}">${t}</a>`).join('')}</div>
+    <div><h4>Shop</h4>${S.categories.slice(0, 6).map(c => `<a href="/category/${esc(c.key)}">${esc(c.title)}</a>`).join('')}<a href="/shop">All products</a></div>
+    <div><h4>Customer care</h4><a href="/how-it-works">How Autique works</a>${SITE().customers.allowOrderTracking ? '<a href="/track">Track your order</a>' : ''}<a href="/account">My orders</a><a href="/contact">Contact us</a>${SITE().sections.aboutPage ? '<a href="/about">About us</a>' : ''}${isStandalone() ? '' : '<a href="#" data-act="install-app">Install the app</a>'}${SITE().content.footerHelp.map(h => `<p>${esc(h)}</p>`).join('')}</div>
+    <div><h4>Policies</h4>${Object.entries(POLICY_PAGES).map(([k, t]) => `<a href="/policies/${k}">${t}</a>`).join('')}</div>
   </div><div class="foot-bottom">&copy; ${new Date().getFullYear()} ${esc(biz.tradingName || 'Autique')}${biz.address ? ` &middot; ${esc(biz.address)}` : ''}. All rights reserved.</div></div>`;
 }
 function openMenu(open) {
@@ -240,7 +255,7 @@ function priceHTML(price, was, from) {
 }
 function cardHTML(p) {
   const pct = p.originalPrice ? Math.round((1 - p.price / p.originalPrice) * 100) : 0;
-  return `<a class="card" href="#/product/${p.id}"><div class="card-img">${pct ? `<span class="pill-badge">${pct}% off</span>` : ''}${imgOrIcon(p.image)}</div>
+  return `<a class="card" href="${productPath(p)}"><div class="card-img">${pct ? `<span class="pill-badge">${pct}% off</span>` : ''}${imgOrIcon(p.image, altOf(p.name))}</div>
     <div class="card-body"><div class="card-cat">${esc(p.categoryTitle)}</div><h3>${esc(p.name)}</h3>${priceHTML(p.price, p.originalPrice, p.hasVariants && p.variants.length > 1)}</div></a>`;
 }
 const gridHTML = list => `<div class="grid">${list.map(cardHTML).join('')}</div>`;
@@ -255,59 +270,178 @@ function bundleHTML(b) {
 const routes = [];
 
 // HOME
-const TRUST_ICONS = () => [ICON.cash, ICON.truck, ICON.shield];
-routes.push([/^\/?$/, () => {
-  const { content: c, sections: on, customers } = SITE();
-  const onSale = S.products.filter(p => p.originalPrice);
-  const brands = c.brands;
-  const trust = c.trust.filter(t => t.title || t.text);
-  return `<div class="container">
-    ${payBannerHTML()}
-    ${on.logoBanner ? `<section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
+// Small line icons for the category list and tiles (by category key; anything else gets the bottle)
+const CAT_ICON = {
+  cleaning: '<svg viewBox="0 0 24 24"><path d="M7 3h6v4l3 3v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V10l2-3z"/><path d="M13 5h4l1 2"/><circle cx="19" cy="4" r=".6"/><circle cx="21" cy="6.5" r=".6"/></svg>',
+  shining: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></svg>',
+  polishing: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7"/><circle cx="12" cy="13" r="3"/><path d="M12 6V3M9 3h6"/></svg>',
+  protection: ICON.shield,
+  engine: '<svg viewBox="0 0 24 24"><path d="M4 10h3l2-3h6v3h3l2 2v5h-2v2h-4l-2-2H9l-2 2H4z"/><path d="M11 4h4"/></svg>'
+};
+const catIcon = key => CAT_ICON[key] || BOTTLE;
+const CHEVRON = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
+// A brand's products: the product name starts with the brand name
+const brandProducts = b => S.products.filter(p => p.name.toLowerCase().startsWith(String(b).toLowerCase()));
+const firstImage = list => (list.find(p => p && p.image) || {}).image || '';
+const HOME_TRUST = [
+  [ICON.cash, 'Cash on delivery', 'Across Pakistan'],
+  [ICON.shield, 'Secure online payment', 'Through Rapid Gateway'],
+  ['<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg>', '7-day returns', 'For damaged or defective items'],
+  [ICON.truck, 'Tracked delivery', 'Via PostEx (Call Courier)']
+];
+const rowHTML = list => `<div class="row-scroll">${list.map(cardHTML).join('')}</div>`;
+
+// Hero slides, built from real data; the sale and bundle slides only appear when there is one.
+function heroSlides(c, on) {
+  const slides = [];
+  if (on.logoBanner) slides.push(`<div class="slide slide-logo"><section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
       <div class="about-logo split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
       <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
-    </section>` : ''}
-    <section class="stage">
-      <div>
-        ${c.heroEyebrow ? `<div class="eyebrow">${esc(c.heroEyebrow)}</div>` : ''}
-        <h1>${esc(c.heroTitle)}</h1>
-        ${c.heroText ? `<p class="lede">${esc(c.heroText)}</p>` : ''}
-        <div class="cta"><a class="btn btn-primary btn-lg" href="#/shop">${esc(c.heroButton)}</a>${S.settings.saleActive ? '<a class="btn btn-outline btn-lg" href="#/shop?sale=1">See the sale</a>' : on.bundles && S.bundles.length ? '<a class="btn btn-outline btn-lg" href="#/bundles">View bundles</a>' : ''}</div>
+      <a class="btn btn-light" href="/shop">Shop now</a>
+    </section></div>`);
+  if (S.settings.saleActive) {
+    const pct = Number(S.settings.saleDiscountPercent) || 0;
+    slides.push(`<div class="slide slide-sale"><div class="slide-in">
+      <div class="eyebrow">${esc(S.settings.saleLabel || 'Sale on now')}</div>
+      <h2>${pct ? `${pct}% off` : 'Sale on now'}</h2>
+      <p>Sale prices are applied automatically in your bag.</p>
+      <a class="btn btn-primary" href="/shop?sale=1">Shop the sale</a></div></div>`);
+  }
+  if (on.bundles && S.bundles.length) {
+    const b = S.bundles[0];
+    const save = b.individualTotal - b.bundlePrice;
+    slides.push(`<div class="slide slide-bundle"><div class="slide-in">
+      <div class="eyebrow">This month's ${S.bundles.length === 1 ? 'bundle' : 'bundles'}</div>
+      <h2>${esc(b.title)}</h2>
+      <p>${esc(b.items.map(i => i.name).join(' + '))} for ${fmt(b.bundlePrice)}${save > 0 ? `, save ${fmt(save)}` : ''}.</p>
+      <a class="btn btn-primary" href="/bundles">${S.bundles.length === 1 ? 'See the bundle' : `See all ${S.bundles.length} bundles`}</a></div></div>`);
+  }
+  if (c.brands.length) slides.push(`<div class="slide slide-brands"><div class="slide-in">
+      <div class="eyebrow">Genuine brands</div>
+      <h2>The names detailers trust.</h2>
+      <p>${esc(c.brands.join(', '))}, in one place.</p>
+      <div class="slide-brand-list">${c.brands.map(b => `<a href="/shop?brand=${encodeURIComponent(b)}">${esc(b)}</a>`).join('')}</div></div></div>`);
+  return slides;
+}
+
+// 2x2 promo tiles: an on-sale product, a bundle, a category and a brand, topped up with
+// more categories and brands. Only real products, bundles, categories and brands.
+function promoTiles(c, on, onSale) {
+  // prefer a photo not already used by another tile
+  const used = new Set();
+  const pick = list => { const ps = list.filter(p => p && p.image); const p = ps.find(x => !used.has(x.image)) || ps[0]; if (p) used.add(p.image); return p ? p.image : ''; };
+  const tile = (href, img, kicker, label) => ({ href, img, kicker, label });
+  const cats = S.categories.filter(cat => cat.products.length);
+  const catTile = cat => tile(`/category/${cat.key}`, pick(S.products.filter(p => p.categoryKey === cat.key)), `${cat.products.length} ${cat.products.length === 1 ? 'product' : 'products'}`, cat.title);
+  const brands = c.brands.filter(b => brandProducts(b).length);
+  const brandTile = b => tile(`/shop?brand=${encodeURIComponent(b)}`, pick(brandProducts(b)), 'Brand', b);
+  const out = [];
+  if (onSale[0]) { const p = onSale[0]; if (p.image) used.add(p.image); out.push(tile(productPath(p), p.image, `${Math.round((1 - p.price / p.originalPrice) * 100)}% off`, p.name)); }
+  if (on.bundles && S.bundles[0]) { const b = S.bundles[0]; out.push(tile('/bundles', pick(b.items.map(i => S.products.find(p => p.id === i.id))), 'Bundle', b.title)); }
+  if (cats[0]) out.push(catTile(cats[0]));
+  if (brands[0]) out.push(brandTile(brands[0]));
+  for (const cat of cats.slice(1)) if (out.length < 4) out.push(catTile(cat));
+  for (const b of brands.slice(1)) if (out.length < 4) out.push(brandTile(b));
+  return out.slice(0, 4);
+}
+
+routes.push([/^\/?$/, () => {
+  const { content: c, sections: on } = SITE();
+  const onSale = S.products.filter(p => p.originalPrice);
+  const slides = heroSlides(c, on);
+  const promos = promoTiles(c, on, onSale);
+  const newest = S.products.slice().sort((a, b) => b.id - a.id).slice(0, 12);
+  const brands = c.brands.map(b => ({ name: b, list: brandProducts(b) })).filter(b => b.list.length);
+  const html = `<div class="container">
+    <h1 class="sr-only">Autique – premium car care in Pakistan</h1>
+    ${payBannerHTML()}
+    <section class="home-top${on.collections ? '' : ' no-cats'}">
+      ${on.collections ? `<nav class="cat-menu" aria-label="Shop by category">
+        <button class="cat-toggle" data-act="toggle-cats" aria-expanded="false" aria-controls="cat-list"><span class="burger" aria-hidden="true"><i></i><i></i><i></i></span><span>Shop by category</span>${CHEVRON}</button>
+        <div class="cat-head">Shop by category</div>
+        <ul id="cat-list">${S.categories.map(cat => `<li>
+          <button class="cat-item" data-act="scroll-cat" data-key="${esc(cat.key)}"><span class="cat-ic">${catIcon(cat.key)}</span><span class="cat-name">${esc(cat.title)}</span>${CHEVRON}</button>
+          ${cat.products.length ? `<div class="cat-fly">
+            <div class="cat-fly-head"><b>${esc(cat.title)}</b><a class="link" href="/category/${esc(cat.key)}">View all ${cat.products.length}</a></div>
+            <div class="cat-fly-grid">${S.products.filter(p => p.categoryKey === cat.key).slice(0, 8).map(p => `<a href="${productPath(p)}"><span class="fly-img">${imgOrIcon(p.image, altOf(p.name))}</span><span class="fly-txt"><b>${esc(p.name)}</b>${priceHTML(p.price, p.originalPrice, p.hasVariants && p.variants.length > 1)}</span></a>`).join('')}</div>
+          </div>` : ''}
+        </li>`).join('')}</ul>
+      </nav>` : ''}
+      <div class="hero" data-slider aria-roledescription="carousel" aria-label="Highlights">
+        <div class="hero-track">${slides.map((s, i) => s.replace('<div class="slide', `<div role="group" aria-roledescription="slide" aria-label="${i + 1} of ${slides.length}" class="slide`)).join('')}</div>
+        ${slides.length > 1 ? `<button class="hero-arrow prev" data-slide="-1" aria-label="Previous slide"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="hero-arrow next" data-slide="1" aria-label="Next slide"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <div class="hero-dots">${slides.map((_, i) => `<button data-dot="${i}" aria-label="Go to slide ${i + 1}"></button>`).join('')}</div>` : ''}
       </div>
-      <div class="stage-art"><div class="stage-ring">${BOTTLE}</div>
-        ${brands.length ? `<div class="stage-brands">${brands.map(b => `<span>${esc(b)}</span>`).join('')}</div>` : ''}</div>
+      ${promos.length ? `<div class="promos">${promos.map(t => `<a class="promo" href="${esc(t.href)}"><span class="promo-img">${imgOrIcon(t.img, altOf(t.label), true)}</span><span class="promo-txt"><small>${esc(t.kicker)}</small><b>${esc(t.label)}</b><span class="go">Shop now &rarr;</span></span></a>`).join('')}</div>` : ''}
     </section>
-    ${on.trustStrip && trust.length ? `<div class="trust">${trust.map((t, i) => `<div>${TRUST_ICONS()[i % 3]}<p><b>${esc(t.title)}</b><span>${esc(t.text)}</span></p></div>`).join('')}</div>` : ''}
 
-    <section class="section how-band"><div class="section-head"><div><h2>How it works</h2><p>Order in minutes. No account needed.</p></div><a class="link" href="#/how-it-works">See the full journey</a></div>
-      <ol class="how-steps">${[['Choose', 'Browse and add products to your bag'], ['Check out', 'Enter delivery details as a guest'], ['Pay', 'Cash on delivery or pay online securely'], ['Receive', 'Delivered by PostEx, with tracking']].map(([t, d], i) => `<li><span>${i + 1}</span><b>${t}</b><p>${d}</p></li>`).join('')}</ol></section>
+    ${on.trustStrip ? `<div class="trust trust-4">${HOME_TRUST.map(([ic, t, s]) => `<div>${ic}<p><b>${t}</b><span>${s}</span></p></div>`).join('')}</div>` : ''}
 
-    ${on.collections ? `<section class="section"><div class="section-head"><div><h2>Shop by need</h2><p>Cleaning, shining, polishing and more.</p></div><a class="link" href="#/shop">View everything</a></div>
-      <div class="tiles">${S.categories.map(cat => `<a class="tile" href="#/shop/${esc(cat.key)}"><div><h3>${esc(cat.title)}</h3><p>${esc(cat.tagline)}</p></div><span class="go">${cat.products.length} ${cat.products.length === 1 ? 'product' : 'products'} &rarr;</span></a>`).join('')}</div></section>` : ''}
-    ${on.collections && S.types.length ? `<section class="section type-section"><div class="section-head"><div><h2>Shop by type</h2><p>Go straight to what you need.</p></div></div>
-      <div class="type-chips">${S.types.map(t => `<a class="type-chip" href="#/shop?type=${esc(t.key)}"><b>${esc(t.title)}</b><span>${S.products.filter(p => p.type === t.key).length}</span></a>`).join('')}</div></section>` : ''}
+    ${S.settings.saleActive || onSale.length ? `<section class="section"><div class="section-head"><div><h2>On sale</h2><p>${esc(S.settings.saleActive && S.settings.saleLabel ? S.settings.saleLabel : 'Sale prices are applied automatically in your bag.')}</p></div><a class="link" href="/shop?sale=1">See all offers</a></div>
+      ${onSale.length ? rowHTML(onSale) : '<p class="muted">Sale prices are applied automatically in your bag.</p>'}</section>` : ''}
 
-    ${S.settings.saleActive ? `<section class="section"><div class="saleband"><div><h2>${esc(S.settings.saleLabel || 'Sale on now')}</h2><p>Sale prices are applied automatically in your bag.</p></div><a class="btn btn-primary btn-lg" href="#/shop?sale=1">Shop the sale</a></div>
-      ${onSale.length ? `<div style="margin-top:34px">${gridHTML(onSale.slice(0, 4))}</div>` : ''}</section>` : ''}
+    ${on.collections ? `<section class="section" id="home-cats"><div class="section-head"><div><h2>Shop by category</h2><p>Cleaning, shining, polishing and more.</p></div><a class="link" href="/shop">View everything</a></div>
+      <div class="cat-tiles">${S.categories.map(cat => { const img = firstImage(S.products.filter(p => p.categoryKey === cat.key)); return `<a class="cat-tile" id="home-cat-${esc(cat.key)}" href="/category/${esc(cat.key)}">
+        <span class="cat-tile-img">${img ? `<img src="${esc(img)}" alt="${esc(altOf(cat.title))}" width="800" height="800" loading="lazy" decoding="async">` : `<span class="cat-ic">${catIcon(cat.key)}</span>`}</span>
+        <span class="cat-tile-txt"><h3>${esc(cat.title)}</h3><p>${esc(cat.tagline)}</p><span class="go">${cat.products.length} ${cat.products.length === 1 ? 'product' : 'products'} &rarr;</span></span></a>`; }).join('')}</div></section>` : ''}
 
-    ${on.bundles && S.bundles.length ? `<section class="section"><div class="section-head"><div><h2>This month's bundles</h2><p>Save more when you pair products together.</p></div><a class="link" href="#/bundles">All bundles</a></div>
+    ${on.bundles && S.bundles.length ? `<section class="section"><div class="section-head"><div><h2>This month's bundles</h2><p>Save more when you pair products together.</p></div><a class="link" href="/bundles">All bundles</a></div>
       <div class="bundles">${S.bundles.slice(0, 3).map(bundleHTML).join('')}</div></section>` : ''}
 
-    ${on.bestsellers ? `<section class="section"><div class="section-head"><div><h2>${esc(c.bestsellersTitle)}</h2>${c.bestsellersText ? `<p>${esc(c.bestsellersText)}</p>` : ''}</div><a class="link" href="#/shop">Shop all</a></div>${gridHTML(S.products.slice(0, c.bestsellersCount))}</section>` : ''}
+    ${on.brandPanel && brands.length ? `<section class="section"><div class="section-head"><div><h2>Top brands</h2><p>Genuine products from the names detailers trust.</p></div></div>
+      <div class="brand-tiles">${brands.map(b => `<a class="brand-tile" href="/shop?brand=${encodeURIComponent(b.name)}"><span class="brand-img">${imgOrIcon(firstImage(b.list), altOf(b.name))}</span><span class="brand-txt"><b>${esc(b.name)}</b><span class="go">${b.list.length} ${b.list.length === 1 ? 'product' : 'products'} &rarr;</span></span></a>`).join('')}</div></section>` : ''}
+
+    ${on.bestsellers && newest.length ? `<section class="section"><div class="section-head"><div><h2>New arrivals</h2><p>The latest additions to the shelf.</p></div><a class="link" href="/shop">Shop all</a></div>${rowHTML(newest)}</section>` : ''}
 
     ${galleryHTML('Inside Autique', 'Real photos of our inventory, packaging and setup.')}
-
-    ${on.brandPanel ? `<section class="section"><div class="split">
-      <div class="panel"><h2>${esc(c.panelTitle)}</h2>${c.panelText ? `<p>${esc(c.panelText)}</p>` : ''}
-        ${c.panelPoints.length ? `<ul class="facts">${c.panelPoints.map(pt => `<li>${ICON.check}<span>${esc(pt)}</span></li>`).join('')}</ul>` : ''}
-        <a class="btn btn-primary" href="#/shop">Explore the collection</a></div>
-      <div class="panel brands">${brands.map(b => `<div>${esc(b)}</div>`).join('')}</div>
-    </div></section>` : ''}
   </div>`;
+  return { html, mount: mountHero };
 }]);
 
+// Hero slider: arrows, dots and swipe. Advances every 6 seconds, pauses on hover or
+// keyboard focus, and never autoplays when the visitor prefers reduced motion.
+let heroTimer = null;
+function mountHero(root) {
+  clearInterval(heroTimer);
+  const box = $('[data-slider]', root);
+  if (!box) return;
+  const track = $('.hero-track', box), slides = $$('.slide', box), dots = $$('[data-dot]', box);
+  let i = 0, paused = false;
+  const show = n => {
+    i = (n + slides.length) % slides.length;
+    track.style.transform = `translateX(${-i * 100}%)`;
+    slides.forEach((s, k) => { s.setAttribute('aria-hidden', String(k !== i)); s.inert = k !== i; });
+    dots.forEach((d, k) => d.setAttribute('aria-current', String(k === i)));
+  };
+  show(0);
+  if (slides.length < 2) return;
+  box.addEventListener('click', ev => {
+    const a = ev.target.closest('[data-slide]'), d = ev.target.closest('[data-dot]');
+    if (a) show(i + Number(a.dataset.slide));
+    if (d) show(Number(d.dataset.dot));
+  });
+  box.addEventListener('mouseenter', () => { paused = true; });
+  box.addEventListener('mouseleave', () => { paused = false; });
+  box.addEventListener('focusin', () => { paused = true; });
+  box.addEventListener('focusout', () => { paused = false; });
+  let x0 = null, y0 = 0;
+  box.addEventListener('touchstart', ev => { x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY; }, { passive: true });
+  box.addEventListener('touchend', ev => {
+    if (x0 === null) return;
+    const dx = ev.changedTouches[0].clientX - x0, dy = ev.changedTouches[0].clientY - y0;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) show(i + (dx < 0 ? 1 : -1));
+    x0 = null;
+  });
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  heroTimer = setInterval(() => {
+    if (!box.isConnected) return clearInterval(heroTimer);
+    if (!paused && !document.hidden) show(i + 1);
+  }, 6000);
+}
+
 // SHOP
-routes.push([/^\/shop(?:\/([\w-]+))?$/, (m, q) => {
+routes.push([/^\/(?:shop|category\/([\w-]+))$/, (m, q) => {
   const key = m[1] || '';
   const cat = S.categories.find(c => c.key === key);
   const term = (q.get('q') || '').trim().toLowerCase();
@@ -315,24 +449,26 @@ routes.push([/^\/shop(?:\/([\w-]+))?$/, (m, q) => {
   const sort = q.get('sort') || '';
   const typeKey = q.get('type') || '';
   const type = S.types.find(t => t.key === typeKey);
+  const brand = (q.get('brand') || '').trim();
   let list = S.products.filter(p => (!key || p.categoryKey === key) && (!sale || p.originalPrice) && (!typeKey || p.type === typeKey)
+    && (!brand || p.name.toLowerCase().startsWith(brand.toLowerCase()))
     && (!term || `${p.name} ${p.desc} ${p.sku} ${p.brand} ${p.categoryTitle} ${(S.types.find(t => t.key === p.type) || {}).title || ''} ${(p.variants || []).map(v => `${v.color} ${v.size} ${v.sku}`).join(' ')}`.toLowerCase().includes(term)));
   if (sort === 'price-asc') list = list.slice().sort((a, b) => a.price - b.price);
   if (sort === 'price-desc') list = list.slice().sort((a, b) => b.price - a.price);
   if (sort === 'name') list = list.slice().sort((a, b) => a.name.localeCompare(b.name));
-  const title = term ? `Results for "${q.get('q')}"` : sale ? 'Sale' : cat && type ? `${cat.title}: ${type.title}` : cat ? cat.title : type ? type.title : 'Shop all';
-  const sub = sale ? 'Everything currently on offer.' : cat ? cat.tagline : type ? `All our ${type.title.toLowerCase()} products.` : 'Car care from Gladiator, Prato, Sogo and WTB: cleaning, shining, polishing and engine care.';
-  const shopHref = (k, t) => `#/shop${k ? '/' + k : ''}${t ? '?type=' + t : ''}`;
+  const title = term ? `Results for "${q.get('q')}"` : sale ? 'Sale' : brand ? brand : cat && type ? `${cat.title}: ${type.title}` : cat ? cat.title : type ? type.title : 'Shop all';
+  const sub = sale ? 'Everything currently on offer.' : brand ? `Every ${brand} product we stock.` : cat ? cat.tagline : type ? `All our ${type.title.toLowerCase()} products.` : 'Car care from Gladiator, Prato, Sogo and WTB: cleaning, shining, polishing and engine care.';
+  const shopHref = (k, t) => `${k ? '/category/' + k : '/shop'}${t ? '?type=' + t : ''}`;
   const opt = (v, label) => `<option value="${v}" ${v === sort ? 'selected' : ''}>${label}</option>`;
   return `<div class="container">
     <div class="page-head"><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
-    <div class="pill-row"><span class="pill-label">By need</span><div class="cat-pills"><a class="pill ${!key && !sale ? 'on' : ''}" href="${shopHref('', typeKey)}">All</a>${S.categories.map(c => `<a class="pill ${c.key === key ? 'on' : ''}" href="${shopHref(c.key, typeKey)}">${esc(c.title)}</a>`).join('')}${S.settings.saleActive ? `<a class="pill ${sale ? 'on' : ''}" href="#/shop?sale=1">On sale</a>` : ''}</div></div>
+    <div class="pill-row"><span class="pill-label">By need</span><div class="cat-pills"><a class="pill ${!key && !sale ? 'on' : ''}" href="${shopHref('', typeKey)}">All</a>${S.categories.map(c => `<a class="pill ${c.key === key ? 'on' : ''}" href="${shopHref(c.key, typeKey)}">${esc(c.title)}</a>`).join('')}${S.settings.saleActive ? `<a class="pill ${sale ? 'on' : ''}" href="/shop?sale=1">On sale</a>` : ''}</div></div>
     ${S.types.length ? `<div class="pill-row"><span class="pill-label">By type</span><div class="cat-pills"><a class="pill ${!typeKey ? 'on' : ''}" href="${shopHref(key, '')}">All types</a>${S.types.map(t => `<a class="pill ${t.key === typeKey ? 'on' : ''}" href="${shopHref(key, t.key)}">${esc(t.title)}</a>`).join('')}</div></div>` : ''}
-    <div class="filters" data-base="${esc(key ? '/shop/' + key : '/shop')}" data-q="${esc(q.get('q') || '')}" data-sale="${sale ? '1' : ''}" data-type="${esc(typeKey)}">
+    <div class="filters" data-base="${esc(key ? '/category/' + key : '/shop')}" data-q="${esc(q.get('q') || '')}" data-sale="${sale ? '1' : ''}" data-type="${esc(typeKey)}" data-brand="${esc(brand)}">
       <select data-change="sort" aria-label="Sort">${opt('', 'Featured')}${opt('price-asc', 'Price: low to high')}${opt('price-desc', 'Price: high to low')}${opt('name', 'Name A-Z')}</select>
       <span class="count">${list.length} ${list.length === 1 ? 'product' : 'products'}</span>
     </div>
-    ${list.length ? gridHTML(list) : `<div class="empty"><h3>Nothing matches yet</h3><p>Try another collection or search for something else.</p><p style="margin-top:18px"><a class="btn btn-outline" href="#/shop">Clear filters</a></p></div>`}
+    ${list.length ? gridHTML(list) : `<div class="empty"><h3>Nothing matches yet</h3><p>Try another collection or search for something else.</p><p style="margin-top:18px"><a class="btn btn-outline" href="/shop">Clear filters</a></p></div>`}
   </div>`;
 }]);
 
@@ -343,14 +479,13 @@ routes.push([/^\/bundles$/, () => `<div class="container">
 </div>`]);
 
 // PRODUCT
-routes.push([/^\/product\/(\d+)$/, (m, q) => {
+routes.push([/^\/product\/(\d+)(?:-[\w-]*)?$/, (m, q) => {
   const p = S.products.find(x => x.id === Number(m[1]));
   if (!p) { const e = new Error('That product is no longer available.'); e.status = 404; throw e; }
-  document.title = `${p.name} — Autique`;
   const sel = { v: p.hasVariants ? (p.variants.find(v => v.id === Number(q.get('v'))) || p.variants[0]) : null, qty: 1 };
   const related = S.products.filter(x => x.categoryKey === p.categoryKey && x.id !== p.id).slice(0, 4);
-  const html = `<div class="container"><div class="crumbs"><a href="#/">Home</a> / <a href="#/shop">Shop</a> / <a href="#/shop/${esc(p.categoryKey)}">${esc(p.categoryTitle)}</a></div>
-    <div class="pdp"><div class="pdp-gallery"><div class="main-img" id="pdp-img"></div>${p.images.length > 1 ? `<div class="pdp-thumbs">${p.images.map((u, i) => `<button class="pdp-thumb ${i === 0 ? 'on' : ''}" data-act="pdp-img" data-i="${i}" aria-label="Photo ${i + 1} of ${p.images.length}"><img src="${esc(u)}" alt=""></button>`).join('')}</div>` : ''}</div>
+  const html = `<div class="container"><div class="crumbs"><a href="/">Home</a> / <a href="/shop">Shop</a> / <a href="/category/${esc(p.categoryKey)}">${esc(p.categoryTitle)}</a></div>
+    <div class="pdp"><div class="pdp-gallery"><div class="main-img" id="pdp-img"></div>${p.images.length > 1 ? `<div class="pdp-thumbs">${p.images.map((u, i) => `<button class="pdp-thumb ${i === 0 ? 'on' : ''}" data-act="pdp-img" data-i="${i}" aria-label="Photo ${i + 1} of ${p.images.length}"><img src="${esc(u)}" alt="${esc(altOf(p.name))} photo ${i + 1}" width="800" height="800" loading="lazy"></button>`).join('')}</div>` : ''}</div>
     <div><h1>${esc(p.name)}</h1><div id="pdp-price"></div><div class="sku-line" id="pdp-sku"></div>${p.brand || p.size ? `<p class="pdp-meta">${p.brand ? `<span><b>Brand:</b> ${esc(p.brand)}</span>` : ''}${p.size ? `<span><b>Size:</b> ${esc(p.size)}</span>` : ''}</p>` : ''}<p class="desc">${esc(p.desc)}</p><div id="pdp-opts"></div>
       <div class="details">
         ${p.hasVariants ? `<details open><summary>Variants and SKUs</summary><table class="vtable"><thead><tr><th>Variant</th><th>SKU</th><th>Price</th></tr></thead><tbody id="pdp-vtable"></tbody></table></details>` : ''}
@@ -365,14 +500,14 @@ routes.push([/^\/product\/(\d+)$/, (m, q) => {
             ${String(p.specs || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf(':'); return i > 0 ? `<tr><th>${esc(l.slice(0, i).trim())}</th><td>${esc(l.slice(i + 1).trim())}</td></tr>` : `<tr><td colspan="2">${esc(l)}</td></tr>`; }).join('')}
           </tbody></table></details>
         ${p.usage ? `<details><summary>How to use</summary>${md(p.usage)}</details>` : ''}
-        <details><summary>Delivery and payment</summary><p>Delivered across Pakistan by PostEx (Call Courier), usually within 1 to 7 working days depending on your city. Pay cash on delivery${S.settings.cardPayments ? ', or pay online by card, JazzCash or Easypaisa' : ''}. <a class="link" href="#/policies/shipping">Shipping Policy</a></p></details>
-        <details><summary>Returns</summary><p>Damaged or defective? Refund or replacement within 7 days of delivery. Change of mind? Return it unused within 7 days (you pay return delivery). <a class="link" href="#/policies/refund">Refund & Returns Policy</a></p></details>
+        <details><summary>Delivery and payment</summary><p>Delivered across Pakistan by PostEx (Call Courier), usually within 1 to 7 working days depending on your city. Pay cash on delivery${S.settings.cardPayments ? ', or pay online by card, JazzCash or Easypaisa' : ''}. <a class="link" href="/policies/shipping">Shipping Policy</a></p></details>
+        <details><summary>Returns</summary><p>Damaged or defective? Refund or replacement within 7 days of delivery. Change of mind? Return it unused within 7 days (you pay return delivery). <a class="link" href="/policies/refund">Refund & Returns Policy</a></p></details>
       </div></div></div>
     ${related.length ? `<section class="section"><div class="section-head"><h2>You may also like</h2></div>${gridHTML(related)}</section>` : ''}</div>`;
   const mount = root => {
     const paint = () => {
       const v = sel.v;
-      $('#pdp-img', root).innerHTML = `${imgOrIcon((v && v.image) || p.images[sel.img || 0] || p.image)}`.replace('alt=""', `alt="${esc(p.name)}"`);
+      $('#pdp-img', root).innerHTML = imgOrIcon((v && v.image) || p.images[sel.img || 0] || p.image, altOf(p.name), true);
       $$('.pdp-thumb', root).forEach((t, i) => t.classList.toggle('on', i === (sel.img || 0)));
       const price = v ? v.price : p.price, was = v ? v.originalPrice : p.originalPrice;
       $('#pdp-price', root).innerHTML = `<div class="price"><span>${fmt(price)}</span>${was ? `<s>${fmt(was)}</s><span class="save-tag">Save ${Math.round((1 - price / was) * 100)}%</span>` : ''}</div>`;
@@ -389,7 +524,7 @@ routes.push([/^\/product\/(\d+)$/, (m, q) => {
     actions['pdp-qty'] = el => { sel.qty = Math.max(1, sel.qty + Number(el.dataset.d)); paint(); };
     actions['pdp-add'] = () => {
       if (sel.v) cart.add('variant', `${p.id}:${sel.v.id}`, sel.qty); else cart.add('product', String(p.id), sel.qty);
-      toast('Added to your bag', { link: '#/cart', linkText: 'View bag' });
+      toast('Added to your bag', { link: '/cart', linkText: 'View bag' });
     };
     paint();
   };
@@ -414,7 +549,7 @@ async function totals(lines) {
   }
   return { subtotal, saleSavings, discount, code, error, total: Math.max(0, subtotal - discount) };
 }
-const emptyBag = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Your bag is empty</h3><p>Find something you like and it will show up here.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/shop">Start shopping</a></p></div></div>`;
+const emptyBag = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Your bag is empty</h3><p>Find something you like and it will show up here.</p><p style="margin-top:20px"><a class="btn btn-primary" href="/shop">Start shopping</a></p></div></div>`;
 
 routes.push([/^\/cart$/, async () => {
   const lines = cart.lines();
@@ -422,9 +557,9 @@ routes.push([/^\/cart$/, async () => {
   const t = await totals(lines);
   const extra = `<form class="coupon" data-form="coupon"><input class="input" name="code" placeholder="Discount code" value="${esc(t.code)}" aria-label="Discount code"><button class="btn btn-outline btn-sm" type="submit">Apply</button></form>
     ${t.error ? `<div class="small" style="color:var(--danger);margin-bottom:8px">${esc(t.error)}</div>` : ''}
-    <a class="btn btn-primary btn-lg btn-block" href="#/checkout" style="margin-top:14px">Checkout</a>`;
+    <a class="btn btn-primary btn-lg btn-block" href="/checkout" style="margin-top:14px">Checkout</a>`;
   return `<div class="container"><div class="page-head"><h1>Your bag</h1></div><div class="two"><div>
-    ${lines.map(l => `<div class="line"><a class="line-img" href="${l.href}">${imgOrIcon(l.image)}</a>
+    ${lines.map(l => `<div class="line"><a class="line-img" href="${l.href}">${imgOrIcon(l.image, altOf(l.name))}</a>
       <div><h3><a href="${l.href}">${esc(l.name)}</a></h3><div class="meta">${esc(l.label)}</div>
         <div class="qty"><button data-act="cart-qty" data-type="${l.type}" data-key="${esc(l.key)}" data-d="-1" aria-label="Fewer">&minus;</button><span>${l.qty}</span><button data-act="cart-qty" data-type="${l.type}" data-key="${esc(l.key)}" data-d="1" aria-label="More">+</button></div>
         <div style="margin-top:8px"><button class="link small" data-act="cart-remove" data-type="${l.type}" data-key="${esc(l.key)}">Remove</button></div></div>
@@ -440,7 +575,7 @@ routes.push([/^\/checkout$/, async () => {
   const t = await totals(lines);
   const u = S.user || { name: '', email: '', phone: '', address: '', city: '', province: '' };
   const itemRows = `<div style="margin:0 0 16px">${lines.map(l => `<div class="sum-row"><span>${esc(l.name)}${l.type === 'variant' ? ` <span class="muted">(${esc(l.label)})</span>` : ''} <span class="muted">&times; ${l.qty}</span></span><span>${fmt(l.price * l.qty)}</span></div>`).join('')}</div>`;
-  return `<div class="container"><div class="page-head"><h1>Checkout</h1><p>${S.user ? `Signed in as ${esc(u.email)}. This order will be saved under My orders.` : 'No account needed. Check out as a guest, and create an account afterwards if you like. Already have one? <a class="link" href="#/login?next=/checkout">Sign in</a>'}</p></div>
+  return `<div class="container"><div class="page-head"><h1>Checkout</h1><p>${S.user ? `Signed in as ${esc(u.email)}. This order will be saved under My orders.` : 'No account needed. Check out as a guest, and create an account afterwards if you like. Already have one? <a class="link" href="/login?next=/checkout">Sign in</a>'}</p></div>
   <form class="two" data-form="checkout"><div>
     <div class="box"><h3>Contact and delivery</h3><div class="form">
       <div class="row"><div class="field"><label for="c-name">Full name</label><input class="input" id="c-name" name="name" value="${esc(u.name || '')}" required autocomplete="name"></div>
@@ -472,7 +607,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
   try { o = (await api(`/api/order-status/${encodeURIComponent(m[1])}?t=${encodeURIComponent(orderTokens.get(m[1]))}`)).order; }
   catch (e) {
     if (e.status !== 404) throw e;
-    return `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/login?next=/account">Sign in</a></p></div></div>`;
+    return `<div class="container"><div class="empty" style="padding:120px 0"><h3>Order ${esc(m[1])}</h3><p>Sign in to see your orders.</p><p style="margin-top:20px"><a class="btn btn-primary" href="/login?next=/account">Sign in</a></p></div></div>`;
   }
   const heading = o.paymentMethod === 'card' && o.paymentStatus !== 'paid' ? 'Almost done' : `Thank you, ${esc(o.customerName.split(' ')[0])}`;
   return `<div class="container" style="max-width:820px"><div class="page-head"><h1>${heading}</h1><p>Order <b>${esc(o.orderNumber)}</b> &middot; placed ${fdate(o.createdAt)}. Keep your order number: you can follow the order any time on Track your order with it and ${esc(o.customerEmail)}.${S.settings.emailUpdates ? ` We'll email you at each step: when it's confirmed, dispatched (with your invoice) and delivered.` : ''}</p></div>
@@ -488,7 +623,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
       <li>We confirm your order and pack it, usually within 1 to 2 working days.</li>
       <li>We hand it to PostEx (Call Courier) and add the tracking number to your order.</li>
       <li>The courier delivers to your door${o.paymentMethod === 'cod' ? `, and you pay <b>${fmt(o.total)}</b> in cash` : ''}.</li>
-      <li>Something wrong? You have 7 days after delivery. See our <a class="link" href="#/policies/refund">Refund & Returns Policy</a>.</li>
+      <li>Something wrong? You have 7 days after delivery. See our <a class="link" href="/policies/refund">Refund & Returns Policy</a>.</li>
     </ol></div>
     ${o.hasAccount ? '' : S.user
       ? `<div class="box"><h3>Save this order to your account</h3><p class="muted">Add it to My orders to find it easily later.</p><div id="acct-msg"></div><button class="btn btn-primary" data-act="claim-order" data-n="${esc(o.orderNumber)}">Add to my account</button></div>`
@@ -497,7 +632,7 @@ routes.push([/^\/order\/([\w-]+)$/, async m => {
           <div id="acct-msg"></div>
           <div class="field"><label for="oa-pass">Password</label><input class="input" id="oa-pass" type="password" name="password" minlength="6" required autocomplete="new-password"><div class="hint">At least 6 characters.</div></div>
           <div><button class="btn btn-primary" type="submit">Create account</button></div></form>` : ''}
-    <p style="margin-top:26px"><a class="btn btn-outline" href="#/shop">Continue shopping</a></p></div>`;
+    <p style="margin-top:26px"><a class="btn btn-outline" href="/shop">Continue shopping</a></p></div>`;
 }]);
 
 // TRACK AN ORDER (order number + account email)
@@ -528,7 +663,7 @@ routes.push([/^\/track$/, (m, q) => !SITE().customers.allowOrderTracking ? notAv
   <div id="track-out" style="margin-top:20px"></div></div>`]);
 
 // ABOUT
-const notAvailable = title => `<div class="container"><div class="empty" style="padding:120px 0"><h3>${esc(title)}</h3><p style="margin-top:20px"><a class="btn btn-primary" href="#/">Back to the shop</a></p></div></div>`;
+const notAvailable = title => `<div class="container"><div class="empty" style="padding:120px 0"><h3>${esc(title)}</h3><p style="margin-top:20px"><a class="btn btn-primary" href="/">Back to the shop</a></p></div></div>`;
 routes.push([/^\/about$/, () => {
   const { content: c, sections, customers } = SITE();
   if (!sections.aboutPage) return notAvailable('This page is not available');
@@ -542,7 +677,7 @@ routes.push([/^\/about$/, () => {
       <h1>${esc(c.aboutTitle)}</h1>
       ${paragraphs(c.aboutStory)}
       ${c.aboutPoints.length ? `<ul class="facts">${c.aboutPoints.map(pt => `<li>${ICON.check}<span>${pt.title ? `<b>${esc(pt.title)}</b> ` : ''}${esc(pt.text)}</span></li>`).join('')}</ul>` : ''}
-      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="#/shop">Shop the collection</a><a class="btn btn-outline btn-lg" href="#/how-it-works">How Autique works</a></p>
+      <p style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary btn-lg" href="/shop">Shop the collection</a><a class="btn btn-outline btn-lg" href="/how-it-works">How Autique works</a></p>
     </section>
     ${galleryHTML('Inside Autique', 'Our inventory, packaging and setup.')}</div>`;
   const mount = () => { setTimeout(() => { const l = $('#about-logo'); if (l) l.classList.add('is-split'); }, 700); };
@@ -555,7 +690,7 @@ routes.push([/^\/policies\/(refund|shipping|privacy|terms)$/, m => {
   return `<div class="container"><article class="doc-page">
     <div class="page-head"><h1>${POLICY_PAGES[m[1]]}</h1></div>
     <div class="doc">${md(SITE().content.policies[m[1]])}</div>
-    <nav class="doc-links" aria-label="Other policies">${Object.entries(POLICY_PAGES).filter(([k]) => k !== m[1]).map(([k, t]) => `<a class="pill" href="#/policies/${k}">${t}</a>`).join('')}<a class="pill" href="#/contact">Contact us</a></nav>
+    <nav class="doc-links" aria-label="Other policies">${Object.entries(POLICY_PAGES).filter(([k]) => k !== m[1]).map(([k, t]) => `<a class="pill" href="/policies/${k}">${t}</a>`).join('')}<a class="pill" href="/contact">Contact us</a></nav>
   </article></div>`;
 }]);
 
@@ -580,7 +715,7 @@ routes.push([/^\/contact$/, () => {
         ${b.address ? `<div><dt>Registered address</dt><dd>${esc(b.address)}</dd></div>` : ''}
         ${b.website ? `<div><dt>Website</dt><dd>${esc(b.website)}</dd></div>` : ''}
       </dl></div>
-    <p class="muted" style="margin-top:18px">Returning a product? Please read our <a class="link" href="#/policies/refund">Refund & Returns Policy</a> and include your order number when you contact us.</p>
+    <p class="muted" style="margin-top:18px">Returning a product? Please read our <a class="link" href="/policies/refund">Refund & Returns Policy</a> and include your order number when you contact us.</p>
   </article></div>`;
 }]);
 
@@ -593,7 +728,7 @@ routes.push([/^\/how-it-works$/, () => {
     <div class="doc">${md(c.businessModel)}</div>
     <h2 class="journey-title" id="journey">Your journey with Autique</h2>
     <ol class="journey">${c.journey.map((j, i) => `<li><span class="journey-num">${i + 1}</span><div><b>${esc(j.title)}</b><p>${esc(j.text)}</p></div></li>`).join('')}</ol>
-    <div class="journey-cta"><a class="btn btn-primary btn-lg" href="#/shop">Start shopping</a>${SITE().customers.allowOrderTracking ? '<a class="btn btn-outline btn-lg" href="#/track">Track an order</a>' : ''}<a class="btn btn-outline btn-lg" href="#/policies/shipping">Shipping Policy</a><a class="btn btn-outline btn-lg" href="#/policies/refund">Refunds & Returns</a></div>
+    <div class="journey-cta"><a class="btn btn-primary btn-lg" href="/shop">Start shopping</a>${SITE().customers.allowOrderTracking ? '<a class="btn btn-outline btn-lg" href="/track">Track an order</a>' : ''}<a class="btn btn-outline btn-lg" href="/policies/shipping">Shipping Policy</a><a class="btn btn-outline btn-lg" href="/policies/refund">Refunds & Returns</a></div>
     ${galleryHTML('Inside Autique', 'Our inventory, packaging and setup in Lahore.')}
   </article></div>`;
 }]);
@@ -643,16 +778,16 @@ const authPage = (mode, next) => {
       <div class="field"><label for="a-email">Email</label><input class="input" id="a-email" type="email" name="email" required autocomplete="email"></div>
       <div class="field"><label for="a-pass">Password</label><input class="input" id="a-pass" type="password" name="password" required minlength="${reg ? 6 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">${reg ? '<div class="hint">At least 6 characters.</div>' : ''}</div>
       <button class="btn btn-primary btn-lg btn-block" type="submit">${reg ? 'Create account' : 'Sign in'}</button>
-      <p class="small muted" style="text-align:center">${reg ? `Already have an account? <a class="link" href="#/login?next=${esc(next)}">Sign in</a>` : (SITE().customers.allowSignup ? `New here? <a class="link" href="#/register?next=${esc(next)}">Create an account</a>` : '')}</p></form></div></div>`;
+      <p class="small muted" style="text-align:center">${reg ? `Already have an account? <a class="link" href="/login?next=${esc(next)}">Sign in</a>` : (SITE().customers.allowSignup ? `New here? <a class="link" href="/register?next=${esc(next)}">Create an account</a>` : '')}</p></form></div></div>`;
   return { html, mount: root => { mountGoogleButton(root, reg, next); } };
 };
 routes.push([/^\/login$/, (m, q) => S.user ? go(q.get('next') || '/account') : authPage('login', q.get('next') || '/account')]);
 routes.push([/^\/register$/, (m, q) => S.user ? go(q.get('next') || '/account')
-  : !SITE().customers.allowSignup ? `<div class="container"><div class="auth" style="text-align:center"><h1>Sign-ups are closed</h1><p class="sub">We're not taking new accounts right now. Already have one?</p><a class="btn btn-primary btn-lg" href="#/login?next=${esc(q.get('next') || '/account')}">Sign in</a></div></div>`
+  : !SITE().customers.allowSignup ? `<div class="container"><div class="auth" style="text-align:center"><h1>Sign-ups are closed</h1><p class="sub">We're not taking new accounts right now. Already have one?</p><a class="btn btn-primary btn-lg" href="/login?next=${esc(q.get('next') || '/account')}">Sign in</a></div></div>`
   : authPage('register', q.get('next') || '/account')]);
 
 function accountTabs(tab) {
-  const t = (key, label) => `<a class="pill ${tab === key ? 'on' : ''}" href="#/account${key === 'orders' ? '' : '?tab=' + key}">${label}</a>`;
+  const t = (key, label) => `<a class="pill ${tab === key ? 'on' : ''}" href="/account${key === 'orders' ? '' : '?tab=' + key}">${label}</a>`;
   return `<div class="tabs">${t('orders', 'Orders')}${t('profile', 'Profile')}${t('password', 'Password')}<button class="pill" data-act="logout">Sign out</button></div>`;
 }
 function profileHTML(u) {
@@ -697,11 +832,11 @@ routes.push([/^\/account$/, async (m, q) => {
   const body = orders.length ? orders.map(o => `<div class="order-card"><div class="order-top"><div><b>${esc(o.orderNumber)}</b> <span class="muted small">&middot; ${fdate(o.createdAt)}</span></div><span class="status ${o.status === 'Cancelled' ? 'bad' : ''}">${esc(o.status)}</span></div>
       <div class="order-lines">${o.items.map(i => `${i.qty}&times; ${esc(i.name)}`).join('<br>')}</div>
       ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
-      ${SITE().customers.allowOrderTracking ? `<a class="link small" style="display:inline-block;margin-top:10px" href="#/track?n=${esc(o.orderNumber)}">Track this order</a>` : ''}
+      ${SITE().customers.allowOrderTracking ? `<a class="link small" style="display:inline-block;margin-top:10px" href="/track?n=${esc(o.orderNumber)}">Track this order</a>` : ''}
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
       <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
       </div>`).join('')
-    : '<div class="empty"><h3>No orders yet</h3><p>When you place an order it will appear here.</p><p style="margin-top:18px"><a class="btn btn-primary" href="#/shop">Start shopping</a></p></div>';
+    : '<div class="empty"><h3>No orders yet</h3><p>When you place an order it will appear here.</p><p style="margin-top:18px"><a class="btn btn-primary" href="/shop">Start shopping</a></p></div>';
   return `${head}${body}</div>`;
 }]);
 
@@ -710,7 +845,20 @@ const actions = {
   menu: () => openMenu(!$('#drawer').classList.contains('open')),
   'menu-close': () => openMenu(false),
   search: () => { const b = $('#searchbar'); b.classList.toggle('open'); if (b.classList.contains('open')) $('#search-input').focus(); },
-  'add-bundle': el => { cart.add('bundle', el.dataset.id, 1); toast('Bundle added to your bag', { link: '#/cart', linkText: 'View bag' }); },
+  'toggle-cats': el => {
+    const open = el.getAttribute('aria-expanded') !== 'true';
+    el.setAttribute('aria-expanded', String(open));
+    el.closest('.cat-menu').classList.toggle('open', open);
+  },
+  'scroll-cat': el => {
+    const menu = el.closest('.cat-menu');
+    if (menu.classList.contains('open')) actions['toggle-cats']($('.cat-toggle', menu));
+    const tile = document.getElementById('home-cat-' + el.dataset.key);
+    if (!tile) return go('/category/' + el.dataset.key);
+    tile.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+    tile.classList.remove('flash'); void tile.offsetWidth; tile.classList.add('flash');
+  },
+  'add-bundle': el => { cart.add('bundle', el.dataset.id, 1); toast('Bundle added to your bag', { link: '/cart', linkText: 'View bag' }); },
   'cart-qty': async el => {
     const b = cart.bag(el.dataset.type), q = (b[el.dataset.key] || 0) + Number(el.dataset.d);
     if (q < 1) return;
@@ -730,7 +878,7 @@ const actions = {
     returnedOrder = null;
     clearTimeout(payPoll);
     el.closest('.pay-banner').remove();
-    history.replaceState(null, '', location.pathname + location.hash);
+    history.replaceState(null, '', location.pathname);
   },
   'about-replay': () => { const l = $('#about-logo'); l.classList.remove('is-split'); setTimeout(() => l.classList.add('is-split'), 900); },
   'cart-remove': async el => { cart.remove(el.dataset.type, el.dataset.key); await route(); },
@@ -746,7 +894,7 @@ const forms = {
       const { user } = await api(`/api/orders/${encodeURIComponent(n)}/account`, { method: 'POST', body: { t: orderTokens.get(n), password: new FormData(form).get('password') } });
       S.user = user; renderChrome(); toast('Account created. Welcome!'); await route();
     } catch (e) {
-      msg.innerHTML = `<div class="note err">${esc(e.message)}${e.data && e.data.signIn ? ` <a class="link" href="#/login?next=${encodeURIComponent('/order/' + n)}">Sign in</a>` : ''}</div>`;
+      msg.innerHTML = `<div class="note err">${esc(e.message)}${e.data && e.data.signIn ? ` <a class="link" href="/login?next=${encodeURIComponent('/order/' + n)}">Sign in</a>` : ''}</div>`;
       btn.disabled = false;
     }
   },
@@ -826,6 +974,7 @@ const changes = {
     if (box.dataset.q) p.set('q', box.dataset.q);
     if (box.dataset.sale) p.set('sale', box.dataset.sale);
     if (box.dataset.type) p.set('type', box.dataset.type);
+    if (box.dataset.brand) p.set('brand', box.dataset.brand);
     const s = p.toString();
     go(box.dataset.base + (s ? '?' + s : ''));
   },
@@ -872,26 +1021,57 @@ function syncScrollLogos() {
 }
 window.addEventListener('scroll', syncScrollLogos, { passive: true });
 
+// ---------- page title, description, canonical ----------
+const BASE_TITLE = 'Autique | Car Care in Pakistan: Gladiator, Sogo, Prato, WTB';
+function clip(t, max) { t = String(t || '').replace(/\s+/g, ' ').trim(); if (t.length < max) return t; const c = t.slice(0, max - 1); return c.slice(0, Math.max(c.lastIndexOf(' '), max - 20)).replace(/[\s,.;:–-]+$/, '') + '…'; }
+const PRIVATE_TITLES = { '/cart': 'Your Bag | Autique', '/checkout': 'Checkout | Autique', '/account': 'My Account | Autique', '/track': 'Track Your Order | Autique', '/login': 'Sign In | Autique', '/register': 'Create an Account | Autique' };
+function setMeta(path) {
+  let title = null, desc = null, canonical = path;
+  let m;
+  if (path === '/') { title = BASE_TITLE; desc = `${SITE().content.heroText} ${SITE().content.announcement}.`; }
+  else if ((m = /^\/product\/(\d+)/.exec(path))) {
+    const p = S.products.find(x => x.id === Number(m[1]));
+    if (p) {
+      const many = p.hasVariants && new Set(p.variants.map(v => v.price)).size > 1;
+      const suffix = ` - ${many ? 'from ' : ''}${fmt(p.price)} | Autique`;
+      title = clip(p.name, 60 - suffix.length) + suffix; desc = p.desc; canonical = productPath(p);
+      if (location.pathname !== canonical) history.replaceState(null, '', canonical + location.search);
+    }
+  }
+  else if ((m = /^\/category\/([\w-]+)/.exec(path))) { const c = S.categories.find(x => x.key === m[1]); if (c) { title = `${c.title} | Car Care | Autique`; desc = c.tagline; } }
+  else if (path === '/shop') title = 'Shop All Car Care Products | Autique';
+  else if (path === '/bundles') title = 'Car Care Bundles | Autique';
+  else if (path === '/about') title = 'About Autique | Car Care from Lahore';
+  else if (PRIVATE_TITLES[path]) title = PRIVATE_TITLES[path];
+  document.title = clip(title || (document.title.includes('Autique') ? document.title : 'Autique | Car Care'), 60);
+  if (desc) { const d = $('meta[name="description"]'); if (d) d.setAttribute('content', clip(desc, 160)); }
+  const link = $('link[rel="canonical"]');
+  if (link) link.setAttribute('href', new URL(link.href).origin + canonical);
+}
+
 // ---------- router ----------
 let routeId = 0;
 async function route() {
   const id = ++routeId;
-  const h = location.hash.slice(1) || '/';
+  const h = location.pathname + location.search;
   const qi = h.indexOf('?'), path = qi < 0 ? h : h.slice(0, qi), q = new URLSearchParams(qi < 0 ? '' : h.slice(qi + 1));
   openMenu(false);
-  document.title = 'Autique — Car Care';
   const setApp = html => { $('#app').innerHTML = html; };
   for (const [re, fn] of routes) {
     const m = re.exec(path);
     if (!m) continue;
     try {
-      const out = await fn(m, q);
+      document.title = 'Autique | Car Care';
+      rendering = true;
+      let out;
+      try { out = await fn(m, q); } finally { rendering = false; }
       if (id !== routeId || out === undefined) return;
       if (typeof out === 'string') setApp(out); else { setApp(out.html); out.mount($('#app')); }
+      setMeta(path);
     } catch (e) {
       if (id !== routeId) return;
       if (e.status === 401) return go('/login?next=' + encodeURIComponent(path));
-      setApp(`<div class="container"><div class="empty" style="padding:120px 0"><h3>${e.status === 404 ? 'We could not find that' : 'Something went wrong'}</h3><p>${esc(e.message)}</p><p style="margin-top:20px"><a class="btn btn-primary" href="#/">Back to the shop</a></p></div></div>`);
+      setApp(`<div class="container"><div class="empty" style="padding:120px 0"><h3>${e.status === 404 ? 'We could not find that' : 'Something went wrong'}</h3><p>${esc(e.message)}</p><p style="margin-top:20px"><a class="btn btn-primary" href="/">Back to the shop</a></p></div></div>`);
     }
     renderChrome();
     if (!routeKeepsScroll) window.scrollTo(0, 0);
@@ -899,7 +1079,7 @@ async function route() {
     setTimeout(syncScrollLogos, 60); // newly rendered wordmarks animate open
     return;
   }
-  setApp('<div class="container"><div class="empty" style="padding:120px 0"><h3>Page not found</h3><p style="margin-top:20px"><a class="btn btn-primary" href="#/">Back to the shop</a></p></div></div>');
+  setApp('<div class="container"><div class="empty" style="padding:120px 0"><h3>Page not found</h3><p style="margin-top:20px"><a class="btn btn-primary" href="/">Back to the shop</a></p></div></div>');
   renderChrome();
 }
 let routeKeepsScroll = false;
@@ -928,12 +1108,30 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { openMenu
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(err => console.warn('Service worker not registered:', err.message)); });
 }
-window.addEventListener('hashchange', route);
+window.addEventListener('popstate', route);
+window.addEventListener('hashchange', () => {
+  if (!location.hash.startsWith('#/')) return;
+  history.replaceState(null, '', legacyPath(location.hash.slice(1)));
+  route();
+});
+// Same-site links are handled in the page instead of reloading it
+document.addEventListener('click', ev => {
+  if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+  const a = ev.target.closest('a[href]');
+  if (!a || a.dataset.act || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
+  const href = a.getAttribute('href');
+  if (!href.startsWith('/') || href.startsWith('//')) return;
+  const url = new URL(href, location.href);
+  if (/^\/(api|admin|logistics|uploads|webhooks)(\/|$)/.test(url.pathname) || /\.[a-z0-9]+$/i.test(url.pathname)) return;
+  ev.preventDefault();
+  go(url.pathname + url.search);
+});
 
 (async function boot() {
   try { await loadCatalog(); }
   catch (e) { $('#app').innerHTML = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Something went wrong</h3><p>${esc(e.message)}</p></div></div>`; return; }
   cart.save();
+  if (location.hash.startsWith('#/')) history.replaceState(null, '', legacyPath(location.hash.slice(1)) + (location.hash.includes('?') ? '' : location.search));
   const back = new URLSearchParams(location.search).get('order');
   if (back && /^AUT-\d+$/i.test(back)) {
     returnedOrder = back.toUpperCase();

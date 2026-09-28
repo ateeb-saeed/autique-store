@@ -297,6 +297,63 @@ stuck on "sending…" for over 5 minutes (for example, cut off by a restart)
 as failed. A failed email is tried again the next time the order's status
 changes to that stage.
 
+## SEO (search engines)
+
+Every storefront page has a real address, and the server sends its content in
+the first response, so Google (and anyone with JavaScript off) sees products,
+prices and categories, not an empty page. The app then takes over as before.
+
+**Addresses:** `/`, `/shop`, `/category/<key>`, `/product/<id>-<name>`,
+`/bundles`, `/about`, `/contact`, `/how-it-works`, `/policies/<name>`, and the
+private `/track`, `/account`, `/cart`, `/checkout`, `/login`, `/register`,
+`/order/<number>`. Old `#/` links (in emails, bookmarks, the installed app)
+are converted to the new address when the page opens. `/product/1` and wrong
+names redirect (301) to the full `/product/1-gladiator-tire-gel`; unknown
+products, categories and pages return a real 404.
+
+**On each page** (`lib/seo.js`, `lib/pages.js`): a title under 60 characters,
+a description under 160 (from the product or category text), a canonical
+link, Open Graph and Twitter tags (the product photo, or the logo), and
+JSON-LD: Organization and WebSite everywhere, Product with its offer (PKR
+price; InStock when the stock count is above 0, otherwise BackOrder; brand
+from the name) on product pages, and breadcrumbs on category and product
+pages. There are no reviews or ratings.
+
+**Sitemap and robots:** `/sitemap.xml` is built live (home, categories,
+active products, bundles when there are any, about), with `lastmod` from
+when the data last changed. `/robots.txt` blocks the admin and logistics
+portals, `/api/`, `/webhooks/`, `/cart`, `/checkout`, `/account` and
+`/track`. Private pages also send `noindex` (meta tag and `X-Robots-Tag`).
+
+**One address:** `http://` and `www.autique.pk` redirect (301) to
+`https://autique.pk`. The canonical address comes from `SITE_URL` (default
+`https://autique.pk`); other hosts (localhost, Railway's own domain) are not
+redirected. Point both `autique.pk` and `www.autique.pk` at Railway.
+
+**Speed:** gzip (`compression`), images lazy-load below the fold and have
+width/height, versioned CSS/JS and uploads are cached for a year, photos and
+icons for 30 days, pages are always re-checked.
+
+### How to test it
+
+1. **View source:** open `https://autique.pk/product/1-gladiator-tire-gel`
+   and press Ctrl+U (or run
+   `curl -s https://autique.pk/product/1-gladiator-tire-gel | findstr "Rs."`).
+   The product name, price, description and the `<script type="application/ld+json">`
+   block must be in the raw HTML.
+2. **Rich Results Test:** paste a product URL into
+   https://search.google.com/test/rich-results. It should find *Product*
+   (merchant listing / product snippet), *Breadcrumbs* and *Organization*
+   with no errors.
+3. **Lighthouse:** in Chrome, open the page, press F12 → Lighthouse →
+   tick *SEO* (and *Performance*) → Analyze. SEO should score 100 (or
+   close); fix anything it lists.
+4. **Search Console:** add `autique.pk` at https://search.google.com/search-console,
+   submit `https://autique.pk/sitemap.xml`, and use *URL inspection* →
+   *Test live URL* on a product to see the page as Google renders it.
+5. Check `https://autique.pk/robots.txt`, and that `http://www.autique.pk/about`
+   ends up at `https://autique.pk/about`.
+
 ## Taking it online
 
 When you deploy this (Railway, etc.), set an environment variable called
