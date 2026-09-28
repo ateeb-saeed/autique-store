@@ -12,6 +12,7 @@ const gateway = require('./lib/rapidgateway');
 const google = require('./lib/google');
 const site = require('./lib/siteConfig');
 const charges = require('./lib/charges');
+const { ONLINE_METHODS } = require('./lib/paymentMethods');
 const orderEmails = require('./lib/orderEmails');
 const mailer = require('./lib/mailer');
 const seo = require('./lib/seo');
@@ -403,6 +404,7 @@ app.get('/api/settings', (req, res) => {
   res.json({
     saleActive: s.saleActive, saleLabel: s.saleLabel, saleDiscountPercent: s.saleDiscountPercent, saleAppliesTo: s.saleAppliesTo,
     cardPayments: gateway.configured && cfg.customers.payOnline,
+    onlineMethods: ONLINE_METHODS,
     googleClientId: cfg.customers.allowGoogle ? google.clientId : '',
     emailUpdates: mailer.configured(),
     prepaidOffer: gateway.configured && cfg.customers.payOnline ? charges.prepaidOffer() : null,
@@ -470,7 +472,7 @@ app.post('/api/orders', async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return res.status(400).json({ error: 'Please enter a valid email address, so we can contact you about your order.' });
   const phoneE164 = paymentMethod === 'card' ? gateway.toE164PK(shipping.phone) : null;
   if (paymentMethod === 'card') {
-    if (!gateway.configured) return res.status(503).json({ error: 'Card payments are not available right now. Please choose cash on delivery.' });
+    if (!gateway.configured) return res.status(503).json({ error: 'Online payment is not available right now. Please choose cash on delivery.' });
     if (!phoneE164) return res.status(400).json({ error: 'For online payment, enter a Pakistani mobile number like 0321 1234567.' });
   }
 
@@ -1303,7 +1305,7 @@ app.post('/api/logistics/orders/:id/dispatch', requireLogisticsRight('dispatch')
   const orders = store.getOrders();
   const order = orders.find(o => o.id === Number(req.params.id));
   if (!order) return res.status(404).json({ error: 'Order not found.' });
-  if (isAwaitingCardPayment(order) && !order.dispatchedAt) return res.status(400).json({ error: 'This card order has not been paid yet.' });
+  if (isAwaitingCardPayment(order) && !order.dispatchedAt) return res.status(400).json({ error: 'This online-payment order has not been paid yet.' });
   if (!isOpenOrder(order)) return res.status(400).json({ error: `This order is already ${order.status.toLowerCase()}.` });
 
   const products = store.getProducts();
@@ -1447,7 +1449,7 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
     previous: orderTotals(inPrev),
     daily,
     statuses: count(inRange, o => o.status),
-    payments: count(sales, o => (o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card')),
+    payments: count(sales, o => (o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Online payment')),
     topProducts: Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 8),
     categories: Object.entries(categoryMap).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
     fulfilment: {

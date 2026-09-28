@@ -2,7 +2,7 @@
 
 A Shopify-style storefront for Autique, with sign in/sign up, a cart, an
 admin panel, discount coupons, bundles, storewide sales, and a checkout
-flow with Cash on Delivery / Card. Runs entirely on your own laptop
+flow with Cash on Delivery / online payment. Runs entirely on your own laptop
 (localhost) for now.
 
 ## What's inside
@@ -214,13 +214,17 @@ order number and the email used at checkout.
 2. Optionally enter a discount code in the bag.
 3. Click Checkout (this asks them to sign in or create an account first).
 4. Fill in name, phone, address, city, and choose Cash on Delivery or
-   Card.
+   Pay online.
 5. See an order confirmation screen with their order number and total.
 
 ## Online payments (Rapid Gateway)
 
-The "Pay online" option at checkout uses Rapid Gateway's hosted page (card,
-JazzCash, Easypaisa). The store never sees card details.
+The "Pay online" option at checkout uses Rapid Gateway's hosted page. The
+methods enabled on our account (currently debit/credit card, Easypaisa,
+JazzCash and bank account) are listed once, in `lib/paymentMethods.js`: the
+checkout, product pages and default policy texts all use that list, so
+switching a method on or off is a one-line change there. The store never sees
+card details.
 
 1. The order is saved with status **Awaiting payment**. The store gets an OAuth2
    token from Rapid Gateway (cached until it expires) and posts the order to
@@ -286,8 +290,8 @@ The customer is emailed automatically at each stage, from `info@autique.pk`:
 
 | Stage | Sent when |
 |---|---|
-| Order placed | A COD order is placed, or a card order is sent to the payment page |
-| Order confirmed | The status becomes **Confirmed** (by the Rapid Gateway webhook for card orders, or the admin's status dropdown) |
+| Order placed | A COD order is placed, or an online-payment order is sent to the payment page |
+| Order confirmed | The status becomes **Confirmed** (by the Rapid Gateway webhook for online-payment orders, or the admin's status dropdown) |
 | On its way | The order is dispatched (logistics portal, or status **Dispatched** / **Shipped**). Includes the PostEx tracking link and the invoice PDF attached |
 | Delivered | The admin sets the status to **Delivered** |
 

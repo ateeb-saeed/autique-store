@@ -59,6 +59,8 @@ const orderTokens = {
   get(n) { return this.all()[n] || ''; },
   set(n, t) { const a = this.all(); a[n] = t; try { localStorage.setItem(TOKENS_KEY, JSON.stringify(a)); } catch { /* private mode */ } }
 };
+// Online methods enabled on Rapid Gateway (from the server, lib/paymentMethods.js): "a, b, c or d"
+const onlineMethods = () => { const l = S.settings.onlineMethods || []; return l.length > 1 ? `${l.slice(0, -1).join(', ')} or ${l[l.length - 1]}` : (l[0] || 'online'); };
 const PAY_LABEL = { paid: 'Paid', pending: 'Awaiting payment', failed: 'Payment failed', unpaid: 'Pay on delivery' };
 // Set when Rapid Gateway sends the customer back to /?order=<orderNumber>[&failed=1].
 // The redirect alone doesn't prove payment: the banner only says "confirmed"
@@ -500,7 +502,7 @@ routes.push([/^\/product\/(\d+)(?:-[\w-]*)?$/, (m, q) => {
             ${String(p.specs || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf(':'); return i > 0 ? `<tr><th>${esc(l.slice(0, i).trim())}</th><td>${esc(l.slice(i + 1).trim())}</td></tr>` : `<tr><td colspan="2">${esc(l)}</td></tr>`; }).join('')}
           </tbody></table></details>
         ${p.usage ? `<details><summary>How to use</summary>${md(p.usage)}</details>` : ''}
-        <details><summary>Delivery and payment</summary><p>Delivered across Pakistan by PostEx (Call Courier), usually within 1 to 7 working days depending on your city. Pay cash on delivery${S.settings.cardPayments ? ', or pay online by card, JazzCash or Easypaisa' : ''}. <a class="link" href="/policies/shipping">Shipping Policy</a></p></details>
+        <details><summary>Delivery and payment</summary><p>Delivered across Pakistan by PostEx (Call Courier), usually within 1 to 7 working days depending on your city. Pay cash on delivery${S.settings.cardPayments ? `, or pay online by ${esc(onlineMethods())}` : ''}. <a class="link" href="/policies/shipping">Shipping Policy</a></p></details>
         <details><summary>Returns</summary><p>Damaged or defective? Refund or replacement within 7 days of delivery. Change of mind? Return it unused within 7 days (you pay return delivery). <a class="link" href="/policies/refund">Refund & Returns Policy</a></p></details>
       </div></div></div>
     ${related.length ? `<section class="section"><div class="section-head"><h2>You may also like</h2></div>${gridHTML(related)}</section>` : ''}</div>`;
@@ -611,7 +613,7 @@ routes.push([/^\/checkout$/, async () => {
     <div class="box"><h3>Payment</h3>
       ${S.settings.cardPayments ? `<div id="co-offer">${offerHTML(t, 'checkout')}</div>` : ''}
       ${SITE().customers.cashOnDelivery ? `<label class="pay-opt ${t.payment === 'cod' ? 'on' : ''}"><input type="radio" name="paymentMethod" value="cod" ${t.payment === 'cod' ? 'checked' : ''} data-change="pay-pick"><div><b>Cash on delivery</b><span>Pay in cash when your order arrives.</span></div></label>` : ''}
-      ${S.settings.cardPayments ? `<label class="pay-opt ${t.payment === 'card' ? 'on' : ''}"><input type="radio" name="paymentMethod" value="card" ${t.payment === 'card' ? 'checked' : ''} data-change="pay-pick"><div class="opt-main"><b>Pay online${t.offer && t.onlineDiscount > 0 ? ` <span class="save-badge">Save ${fmt(t.onlineDiscount)}</span>` : ''}</b><span>Card, JazzCash or Easypaisa, on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
+      ${S.settings.cardPayments ? `<label class="pay-opt ${t.payment === 'card' ? 'on' : ''}"><input type="radio" name="paymentMethod" value="card" ${t.payment === 'card' ? 'checked' : ''} data-change="pay-pick"><div class="opt-main"><b>Pay online${t.offer && t.onlineDiscount > 0 ? ` <span class="save-badge">Save ${fmt(t.onlineDiscount)}</span>` : ''}</b><span>Pay by ${esc(onlineMethods())} on Rapid Gateway's secure page. Use your Pakistani mobile number above.</span></div></label>` : ''}
       ${!SITE().customers.cashOnDelivery && !S.settings.cardPayments ? '<div class="note err">No payment option is available right now. Please try again later.</div>' : ''}
     </div>
   </div>
@@ -875,7 +877,7 @@ routes.push([/^\/account$/, async (m, q) => {
       ${o.trackingId ? `<a class="courier-link" href="https://postex.pk/tracking?cn=${encodeURIComponent(o.trackingId)}" target="_blank" rel="noopener noreferrer">Track your order with Call Courier / PostEx &rarr;</a>` : ''}
       ${SITE().customers.allowOrderTracking ? `<a class="link small" style="display:inline-block;margin-top:10px" href="/track?n=${esc(o.orderNumber)}">Track this order</a>` : ''}
       ${o.trackingNumber ? `<div class="small muted" style="margin-top:8px">${esc(o.courier)} tracking: ${esc(o.trackingNumber)}</div>` : ''}
-      <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Card: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
+      <div style="margin-top:12px;font-weight:700">${fmt(o.total)} <span class="muted small" style="font-weight:400">&middot; ${o.paymentMethod === 'cod' ? 'Cash on delivery' : 'Online payment: ' + (PAY_LABEL[o.paymentStatus] || '')}</span></div>
       </div>`).join('')
     : '<div class="empty"><h3>No orders yet</h3><p>When you place an order it will appear here.</p><p style="margin-top:18px"><a class="btn btn-primary" href="/shop">Start shopping</a></p></div>';
   return `${head}${body}</div>`;

@@ -19,7 +19,7 @@ const SITE_SWITCHES = {
     ['allowEmailChange', 'Customers can change their email', 'When off, the email on the Profile page is read-only.'],
     ['allowOrderTracking', 'Track your order page', 'The order-number lookup page and its links.'],
     ['cashOnDelivery', 'Cash on delivery', 'Offer cash on delivery at checkout.'],
-    ['payOnline', 'Pay online (Rapid Gateway)', 'Offer card / JazzCash / Easypaisa at checkout.', 'payOnlineConfigured', 'Needs RG_MERCHANT_ID to be set on the server.']
+    ['payOnline', 'Pay online (Rapid Gateway)', 'Offer online payment through Rapid Gateway at checkout.', 'payOnlineConfigured', 'Needs RG_MERCHANT_ID to be set on the server.']
   ],
   logistics: [
     ['viewOrders', 'See orders', 'The Orders tab in the logistics portal.'],
