@@ -308,6 +308,7 @@ select, .input, textarea{ width:100%; padding:12px 16px; border-radius:var(--r-s
 .pay-banner b{ color:var(--ink); }
 .pay-banner-close{ flex:none; width:32px; height:32px; border-radius:50%; border:1.5px solid var(--border); background:var(--white); font-size:1.1rem; line-height:1; cursor:pointer; }
 .pay-banner-close:hover{ background:var(--tint); }
+.pay-banner.is-failed{ border-color:var(--danger); }
 
 /* ---------- Install the app ---------- */
 .app-modal-bg{ position:fixed; inset:0; z-index:150; background:rgba(15,27,43,0.4); display:grid; place-items:center; padding:20px; }

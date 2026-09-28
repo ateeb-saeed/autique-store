@@ -46,8 +46,45 @@ const orderTokens = {
   set(n, t) { const a = this.all(); a[n] = t; try { localStorage.setItem(TOKENS_KEY, JSON.stringify(a)); } catch { /* private mode */ } }
 };
 const PAY_LABEL = { paid: 'Paid', pending: 'Awaiting payment', failed: 'Payment failed', unpaid: 'Pay on delivery' };
-// Set when Rapid Gateway sends the customer back to /?order=<orderNumber>
+// Set when Rapid Gateway sends the customer back to /?order=<orderNumber>[&failed=1].
+// The redirect alone doesn't prove payment: the banner only says "confirmed"
+// once the server's order status is Confirmed (set by the webhook).
 let returnedOrder = null;
+let returnedFailed = false;
+let payState = 'received';   // 'received' | 'confirmed' | 'failed'
+let payPoll = null;
+function payBannerHTML() {
+  if (!returnedOrder) return '';
+  const n = esc(returnedOrder);
+  const track = SITE().customers.allowOrderTracking ? ` or <a class="link" href="#/track?n=${n}">Track your order</a>` : '';
+  const msg = payState === 'confirmed'
+    ? `Your order <b>${n}</b> is confirmed. See it under <a class="link" href="#/account">My orders</a>${track}.`
+    : payState === 'failed'
+      ? `The payment for order <b>${n}</b> didn't go through, and you haven't been charged. You can <a class="link" href="#/cart">try again</a>${SITE().customers.cashOnDelivery ? ', or choose cash on delivery at checkout' : ''}.`
+      : `Your order <b>${n}</b> has been received.`;
+  return `<div class="pay-banner${payState === 'failed' ? ' is-failed' : ''}" id="pay-banner" role="status" aria-live="polite"><p>${msg}</p><button class="pay-banner-close" data-act="dismiss-pay-banner" aria-label="Dismiss">&times;</button></div>`;
+}
+function setPayState(state) {
+  payState = state;
+  const el = $('#pay-banner');
+  if (el) el.outerHTML = payBannerHTML();
+}
+// Ask the server for the order's status now, then every 2 seconds for up to 20 seconds.
+function watchReturnedOrder() {
+  if (returnedFailed) { setPayState('failed'); return; }
+  const started = Date.now();
+  const check = async () => {
+    payPoll = null;
+    if (!returnedOrder) return;
+    try {
+      const o = (await api(`/api/order-status/${encodeURIComponent(returnedOrder)}?t=${encodeURIComponent(orderTokens.get(returnedOrder))}`)).order;
+      if (o.status === 'Confirmed') return setPayState('confirmed');
+      if (o.status === 'Payment failed') return setPayState('failed');
+    } catch { /* not this customer's order, or offline: stay on "received" */ }
+    if (Date.now() - started < 20000) payPoll = setTimeout(check, 2000);
+  };
+  check();
+}
 
 // Site editor settings (content, visible sections, customer rules)
 const SITE = () => S.settings.site;
@@ -225,7 +262,7 @@ routes.push([/^\/?$/, () => {
   const brands = c.brands;
   const trust = c.trust.filter(t => t.title || t.text);
   return `<div class="container">
-    ${returnedOrder ? `<div class="pay-banner" role="status"><p>Thanks! We're confirming payment for order <b>${esc(returnedOrder)}</b>. This page will not update by itself, but you'll see the confirmed status under <a class="link" href="#/account">My orders</a>${customers.allowOrderTracking ? ` or <a class="link" href="#/track?n=${esc(returnedOrder)}">Track your order</a>` : ''} once it's processed.</p><button class="pay-banner-close" data-act="dismiss-pay-banner" aria-label="Dismiss">&times;</button></div>` : ''}
+    ${payBannerHTML()}
     ${on.logoBanner ? `<section class="about-hero home-hero" aria-label="autique. stands for auto-boutique">
       <div class="about-logo split-logo scroll-logo" aria-hidden="true"><span>aut</span><span class="al-grow al-mid"><span>o-bout</span></span><span>ique</span><span class="al-grow al-dot"><span>.</span></span></div>
       <p class="about-caption"><span>auto</span> + <span>boutique</span></p>
@@ -691,6 +728,7 @@ const actions = {
   },
   'dismiss-pay-banner': el => {
     returnedOrder = null;
+    clearTimeout(payPoll);
     el.closest('.pay-banner').remove();
     history.replaceState(null, '', location.pathname + location.hash);
   },
@@ -897,8 +935,12 @@ window.addEventListener('hashchange', route);
   catch (e) { $('#app').innerHTML = `<div class="container"><div class="empty" style="padding:120px 0"><h3>Something went wrong</h3><p>${esc(e.message)}</p></div></div>`; return; }
   cart.save();
   const back = new URLSearchParams(location.search).get('order');
-  if (back && /^AUT-\d+$/i.test(back)) returnedOrder = back.toUpperCase();
+  if (back && /^AUT-\d+$/i.test(back)) {
+    returnedOrder = back.toUpperCase();
+    returnedFailed = new URLSearchParams(location.search).get('failed') === '1';
+  }
   await route();
+  if (returnedOrder) watchReturnedOrder();
   // open the wordmark shortly after the site loads, so the split is seen
   setTimeout(() => { logosReady = true; syncScrollLogos(); }, 500);
 })();
