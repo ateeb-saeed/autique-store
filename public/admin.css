@@ -320,3 +320,9 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 .offer-demo::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:#c8601c; }
 .offer-demo b{ color:#c8601c; font-size:0.95rem; }
 @media (max-width:720px){ .row-2, .charges-now{ grid-template-columns:1fr; } }
+
+/* Rapid Gateway mode (RG_MODE) */
+.mode-badge{ display:inline-block; align-self:flex-start; margin:-4px 22px 12px; padding:3px 10px; border-radius:999px; font-size:0.72rem; font-weight:800; letter-spacing:0.04em; border:1.5px solid currentColor; }
+.mode-badge:empty{ display:none; }
+.mode-badge.live{ color:#fff; background:var(--success); border-color:var(--success); }
+.mode-badge.sandbox{ color:#8a5a00; background:#fff6df; border-color:#e0b24a; }

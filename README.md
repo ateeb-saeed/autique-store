@@ -246,7 +246,9 @@ failed" don't show for dispatch and don't count as revenue.
 
 | Variable | What it is |
 |---|---|
+| `RG_MODE` | `sandbox` (default) or `live`. Admin shows it as a "Payments: SANDBOX / LIVE" badge. |
 | `RG_MERCHANT_ID` | Your Rapid Gateway merchant id. If it's missing, the "Pay online" option is hidden. |
+| `RG_SECRET_KEY` | Live mode only: your live secret key (Rapid Gateway portal). With `RG_MODE=live`, "Pay online" is offered only when both `RG_MERCHANT_ID` and `RG_SECRET_KEY` are set. Keep it only in Railway's Variables: the app never logs it, stores it or shows it in errors. |
 | `RG_SANDBOX_CLIENT_ID` | OAuth2 client id (default `client`, the shared sandbox credential). |
 | `RG_SANDBOX_CLIENT_SECRET` | OAuth2 client secret (default `secret`). |
 | `RG_WEBHOOK_SECRET` | Webhook signing salt (Dashboard → Settings → Webhooks). |
@@ -257,8 +259,26 @@ Register `https://your-site/webhooks/rg` as the webhook URL in the Rapid
 Gateway dashboard. Sandbox test amounts: an order of exactly **Rs. 100**
 succeeds and **Rs. 200** fails.
 
-The API address is set in `lib/rapidgateway.js` (`RG_BASE`); the checkout
-endpoint is the sandbox one (`/sandbox/process-transaction`) until you go live.
+The API address is set in `lib/rapidgateway.js` (`RG_BASE`).
+
+**Sandbox and live.** In sandbox mode the token uses the shared public test
+credentials (`RG_SANDBOX_CLIENT_ID` / `RG_SANDBOX_CLIENT_SECRET`) and checkout
+goes to `/sandbox/process-transaction`. With `RG_MODE=live`, the token request
+signs in with `RG_MERCHANT_ID` and `RG_SECRET_KEY` (Basic auth) and checkout goes
+to `/rapid/process-transaction`; the form fields are the same.
+
+Every webhook event says which environment it is from (`"environment": "LIVE"`,
+`"TEST"`/`"SANDBOX"`). In live mode, TEST/SANDBOX events are ignored (answered
+200, no order changed, a warning is logged), because the sandbox credentials are
+public and anyone could otherwise fake a "paid" test payment for a real order
+number. In sandbox mode it's the other way round. The environment of every
+accepted event is logged. The signature, timestamp, duplicate-event, amount and
+PKR checks apply in both modes.
+
+**Going live:** set `RG_MERCHANT_ID`, `RG_SECRET_KEY`, the live
+`RG_WEBHOOK_SECRET`, then `RG_MODE=live`, and redeploy. Check that admin shows
+"Payments: LIVE", then place a small real order and watch the logs for
+`environment "LIVE" accepted`. To go back, set `RG_MODE=sandbox`.
 
 ## Order emails
 

@@ -76,6 +76,16 @@ app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) =
   const eventId = event.eventId || req.get('X-RapidGateway-Delivery');
   if (type === 'webhook.test') return res.status(200).json({ received: true });
 
+  // Only events from this store's environment count (see gateway.acceptsEnvironment):
+  // in live mode a TEST/SANDBOX event must never confirm a real order.
+  const environment = gateway.eventEnvironment(event, req.get('X-RapidGateway-Environment'));
+  const orderRef = event.merchantTransactionId || event.gatewayTxnRef || 'unknown order';
+  if (!gateway.acceptsEnvironment(environment)) {
+    console.warn(`Rapid Gateway ${type} ${eventId} for ${orderRef} ignored: environment "${environment || '(none)'}" does not match RG_MODE=${gateway.mode}`);
+    return res.status(200).json({ received: true, ignored: 'environment' });
+  }
+  console.log(`Rapid Gateway ${type} ${eventId} for ${orderRef}: environment "${environment}" accepted (${gateway.mode})`);
+
   const orders = store.getOrders();
   // gatewayTxnRef is Rapid Gateway's id for the payment (saved as rgPaymentId when
   // it was created); merchantTransactionId is our own reference for the order.
@@ -296,7 +306,7 @@ app.post('/api/admin/login', (req, res) => {
 
 app.post('/api/admin/logout', (req, res) => { req.session.isAdmin = false; res.json({ ok: true }); });
 
-app.get('/api/admin/me', (req, res) => { res.json({ isAdmin: !!req.session.isAdmin }); });
+app.get('/api/admin/me', (req, res) => { res.json({ isAdmin: !!req.session.isAdmin, paymentsMode: gateway.mode, paymentsConfigured: gateway.configured }); });
 
 app.post('/api/admin/change-password', requireAdmin, (req, res) => {
   const { currentPassword, newPassword } = req.body || {};

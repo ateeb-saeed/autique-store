@@ -7,6 +7,10 @@ async function checkAdmin(){
   const res = await fetch('/api/admin/me');
   const data = await res.json();
   if(data.isAdmin){
+    const badge = document.getElementById('paymentsModeBadge');
+    badge.textContent = `Payments: ${String(data.paymentsMode).toUpperCase()}${data.paymentsConfigured ? '' : ' (off)'}`;
+    badge.className = 'mode-badge ' + (data.paymentsMode === 'live' ? 'live' : 'sandbox');
+    badge.title = data.paymentsConfigured ? `Rapid Gateway is in ${data.paymentsMode} mode (RG_MODE).` : 'Pay online is switched off: the Rapid Gateway credentials for this mode are not set.';
     document.getElementById('loginScreen').classList.add('hidden');
     document.getElementById('adminShell').classList.remove('hidden');
     loadEverything();
