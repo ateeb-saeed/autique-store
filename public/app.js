@@ -680,7 +680,7 @@ const STEPS = ['Order placed', 'Confirmed', 'Dispatched', 'Delivered'];
 function trackStep(o) {
   if (o.status === 'Delivered') return 3;
   if (o.dispatchedAt || o.status === 'Dispatched' || o.status === 'Shipped') return 2;
-  if (o.status === 'Confirmed' || o.paymentStatus === 'paid') return 1;
+  if (o.status === 'Confirmed' || o.status === 'Booked with courier' || o.paymentStatus === 'paid') return 1;
   return 0;
 }
 function trackResultHTML(o) {

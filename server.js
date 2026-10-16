@@ -10,6 +10,7 @@ const store = require('./lib/store');
 const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./lib/pricing');
 const gateway = require('./lib/rapidgateway');
 const postex = require('./lib/postex');
+const courier = require('./lib/courierStatus');
 const google = require('./lib/google');
 const site = require('./lib/siteConfig');
 const charges = require('./lib/charges');
@@ -67,7 +68,7 @@ const PROVINCES = ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Balochistan', 'Isla
 // It needs the raw bytes to check the signature, so it is registered before
 // express.json() and parses its own body. Rapid Gateway retries anything that
 // isn't a 2xx within 15 seconds, and may deliver the same event more than once.
-const PAID_OR_LATER = ['Confirmed', 'Dispatched', 'Shipped', 'Delivered'];
+const PAID_OR_LATER = ['Confirmed', 'Booked with courier', 'Dispatched', 'Shipped', 'Delivered'];
 app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) => {
   if (!gateway.verifyWebhook(req.body, req.get('X-RapidGateway-Timestamp'), req.get('X-RapidGateway-Signature'))) {
     return res.status(401).json({ error: 'Invalid signature.' });
@@ -125,8 +126,8 @@ app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) =
 });
 
 // PostEx status push. There's no published payload format, so the raw body is
-// logged on every arrival and read defensively. The courier's status goes into
-// order.courierStatus only; the order's own status is never changed from here.
+// logged on every arrival and read defensively. The courier status moves the
+// order's own status forward (lib/courierStatus.js), never backward.
 // Always 200 once authorised, so PostEx doesn't keep retrying.
 app.post('/webhooks/postex', express.raw({ type: () => true, limit: '1mb' }), (req, res) => {
   if (!postex.webhookAuthorized(req.get(postex.webhookHeader))) return res.status(401).json({ error: 'Unauthorized' });
@@ -143,10 +144,11 @@ app.post('/webhooks/postex', express.raw({ type: () => true, limit: '1mb' }), (r
       const order = orders.find(o => String(o.trackingId || '').trim().toUpperCase() === trackingNumber.toUpperCase());
       if (!order) console.warn(`PostEx webhook: no order has tracking ID ${trackingNumber}; nothing updated.`);
       else {
-        order.courierStatus = status;
-        order.courierStatusAt = new Date().toISOString();
-        store.saveOrders(orders);
-        console.log(`PostEx webhook: ${order.orderNumber} (${trackingNumber}) courier status "${status}".`);
+        const r = courier.applyCourierStatus(order, status);
+        if (!r.ignored) store.saveOrders(orders);
+        console.log(`PostEx webhook: ${order.orderNumber} (${trackingNumber}) courier status "${status}"` +
+          (r.ignored ? ` ignored: ${r.reason}.` : r.changed ? `, order ${r.previousStatus} → ${order.status}.` : r.reason ? ` (${r.reason}).` : '.'));
+        if (r.changed) orderEmails.statusChanged(order, r.previousStatus);
       }
     }
   } catch (e) {
@@ -1200,7 +1202,9 @@ app.post('/api/admin/orders/:id/postex/book', requireAdmin, requirePostex, async
     fresh.trackingId = booked.trackingNumber;
     if (!fresh.courier) fresh.courier = 'PostEx (Call Courier)';
     fresh.postexBookedAt = new Date().toISOString();
-    if (fresh.status !== 'Dispatched') fresh.status = 'Dispatched';
+    fresh.courierReconciled = true;
+    // PostEx shows a new booking as "Unbooked": nothing has been picked up yet
+    courier.applyCourierStatus(fresh, 'Unbooked', fresh.postexBookedAt);
     store.saveOrders(orders);
     console.log(`PostEx booking for ${fresh.orderNumber}: tracking number ${booked.trackingNumber}.`);
     orderEmails.statusChanged(fresh, previousStatus);
@@ -1219,10 +1223,10 @@ app.post('/api/admin/orders/:id/postex/refresh', requireAdmin, requirePostex, as
   catch (e) { return res.status(502).json({ error: e.message, details: e.body || '' }); }
   const orders = store.getOrders();
   const fresh = orders.find(o => o.id === id);
-  fresh.courierStatus = tracked.status;
-  fresh.courierStatusAt = new Date().toISOString();
-  store.saveOrders(orders);
-  res.json({ order: fresh });
+  const r = courier.applyCourierStatus(fresh, tracked.status);
+  if (!r.ignored) store.saveOrders(orders);
+  if (r.changed) orderEmails.statusChanged(fresh, r.previousStatus);
+  res.json({ order: fresh, ignored: r.ignored ? r.reason : '' });
 });
 app.get('/api/admin/postex/addresses', requireAdmin, requirePostex, async (req, res) => {
   try { res.json({ addresses: await postex.merchantAddresses(), current: postex.pickupAddressCode }); }
@@ -1646,6 +1650,37 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
   });
 });
 
+// One-time fix (runs on start when PostEx is set up): orders booked through PostEx
+// before "Booked with courier" existed were set straight to Dispatched. Ask PostEx
+// for each one's real status and correct the order; every correction is logged.
+async function reconcilePostexBookings() {
+  if (!postex.configured) return;
+  const candidates = store.getOrders().filter(o => o.trackingId && o.status === 'Dispatched' && !o.courierReconciled &&
+    (o.postexBookedAt || courier.classify(o.courierStatus).stage === 'booked'));
+  for (const c of candidates) {
+    let live = '';
+    try { live = (await postex.trackOrder(c.trackingId)).status; }
+    catch (e) { console.warn(`PostEx status fix: could not check ${c.orderNumber} (${c.trackingId}): ${e.message}. Will try again on the next start.`); continue; }
+    const orders = store.getOrders();
+    const o = orders.find(x => x.id === c.id);
+    if (!o || o.status !== 'Dispatched') continue;
+    const stage = courier.classify(live).stage;
+    o.courierReconciled = true;
+    if (stage === 'booked') {
+      o.status = courier.BOOKED_STATUS;          // the one deliberate step back: it was never dispatched
+      o.courierRank = 0;
+      courier.applyCourierStatus(o, live);
+      o.courierNote = `Status corrected from Dispatched: PostEx shows "${live}"`;
+      console.log(`PostEx status fix: ${o.orderNumber} (${o.trackingId}) Dispatched → ${courier.BOOKED_STATUS} (PostEx: "${live}").`);
+    } else {
+      courier.applyCourierStatus(o, live);
+      console.log(`PostEx status fix: ${o.orderNumber} (${o.trackingId}) left as ${o.status} (PostEx: "${live}").`);
+    }
+    store.saveOrders(orders);
+  }
+  if (candidates.length) console.log(`PostEx status fix: checked ${candidates.length} order(s).`);
+}
+
 // Storefront pages, sitemap and robots.txt (after every API route)
 mountPages(app, { publicCatalog, publicBundles });
 
@@ -1656,3 +1691,4 @@ app.listen(PORT, () => {
   if (!mailer.configured()) console.log('Order emails are off: set BREVO_API_KEY to send them.');
 });
 orderEmails.failStuck();
+reconcilePostexBookings().catch(e => console.error('PostEx status fix failed:', e.message));

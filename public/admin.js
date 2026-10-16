@@ -637,10 +637,10 @@ async function loadOrders(){
   const res = await fetch('/api/admin/orders');
   const data = await res.json();
   const tbody = document.querySelector('#ordersTable tbody');
-  const statuses = ['Pending (COD)', 'Awaiting payment', 'Payment failed', 'Pending payment', 'Confirmed', 'Dispatched', 'Shipped', 'Delivered', 'Cancelled'];
+  const statuses = ['Pending (COD)', 'Awaiting payment', 'Payment failed', 'Pending payment', 'Confirmed', 'Booked with courier', 'Dispatched', 'Shipped', 'Delivered', 'Cancelled'];
   tbody.innerHTML = data.orders.map(o => `
-    <tr data-id="${o.id}">
-      <td>${o.orderNumber}</td>
+    <tr data-id="${o.id}" class="${o.courierAttention ? 'needs-attention' : ''}">
+      <td>${o.orderNumber}${o.courierAttention ? '<br><span class="badge off">Check</span>' : ''}</td>
       <td>${o.customerName}<br><span style="color:var(--copper-dim);font-size:0.8rem">${o.customerEmail}</span></td>
       <td>${o.items.map(i => `${i.qty}&times; ${i.name}`).join('<br>')}</td>
       <td>Rs. ${o.total}${o.discount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">(${o.couponCode} &minus;Rs. ${o.discount})</span>` : ''}${o.deliveryFee ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Delivery ${money(o.deliveryFee)}${o.deliveryOption ? ` (${esc(o.deliveryOption.name)})` : ''}</span>` : o.deliveryOption ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Free delivery (${esc(o.deliveryOption.name)})</span>` : ''}${o.prepaidDiscount ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Online discount &minus;${money(o.prepaidDiscount)}</span>` : ''}</td>
@@ -656,7 +656,7 @@ async function loadOrders(){
         <span class="tracking-msg"></span>
         ${postexCell(o)}
       </td>
-      <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}${emailSummary(o)}${['Dispatched', 'Shipped', 'Delivered'].includes(o.status) ? `<br><a class="link-btn" href="/api/logistics/orders/${o.id}/invoice.pdf" target="_blank" rel="noopener">Invoice PDF</a>` : ''}</td>
+      <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}${emailSummary(o)}${['Booked with courier', 'Dispatched', 'Shipped', 'Delivered'].includes(o.status) ? `<br><a class="link-btn" href="/api/logistics/orders/${o.id}/invoice.pdf" target="_blank" rel="noopener">Invoice PDF</a>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="7" style="color:var(--copper-dim)">No orders yet.</td></tr>';
 
@@ -711,7 +711,9 @@ async function loadOrders(){
 // PostEx: "Book with PostEx" until there is a tracking ID, then the courier's own status
 const fmtWhen = iso => iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
 function postexCell(o){
-  const status = o.courierStatus ? `<span class="courier-status">PostEx: <b>${esc(o.courierStatus)}</b>${o.courierStatusAt ? ` &middot; ${fmtWhen(o.courierStatusAt)}` : ''}</span>` : '';
+  const alert = o.courierAttention ? `<div class="courier-alert" role="alert">&#9888; PostEx: <b>${esc(o.courierAttention)}</b>. Check this order and decide what to do.</div>` : '';
+  const status = alert + (o.courierStatus ? `<span class="courier-status">PostEx: <b>${esc(o.courierStatus)}</b>${o.courierStatusAt ? ` &middot; ${fmtWhen(o.courierStatusAt)}` : ''}</span>` : '') +
+    (o.courierNote ? `<span class="courier-status">${esc(o.courierNote)}</span>` : '');
   if(!postexInfo.configured) return status;
   if(o.trackingId) return `<div class="postex-row"><button class="icon-btn postex-refresh" type="button">Refresh courier status</button>${status}</div>`;
   if(o.status === 'Cancelled') return status;

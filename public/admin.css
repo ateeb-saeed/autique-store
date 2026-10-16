@@ -338,3 +338,6 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 .postex-row{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-top:8px; }
 .courier-status{ display:block; font-size:0.78rem; color:var(--ink-2); margin-top:4px; }
 .courier-status b{ color:var(--ink); }
+.courier-alert{ margin-top:8px; padding:7px 10px; border:1.5px solid var(--danger); border-radius:var(--r-sm); background:#fdf0ef; color:var(--danger); font-size:0.8rem; font-weight:600; }
+.courier-alert b{ color:var(--danger); }
+tr.needs-attention td{ background:#fff8f7; }

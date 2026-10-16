@@ -305,14 +305,30 @@ each order. With it, admin → Orders can book pickups directly:
   then creates the PostEx order: city, name, phone, full address, order
   number as reference, item list and count. The amount to collect is the order
   total for cash on delivery and Rs. 0 for orders already paid online. The
-  returned tracking number is saved as the order's tracking ID and the order
-  becomes Dispatched (the customer gets the dispatch email with the tracking
-  link). If PostEx refuses, its message is shown and nothing changes.
-  Booking here doesn't take stock off; dispatching in the logistics portal does.
-- **Refresh courier status** asks PostEx for the latest status. Status pushes
-  to `/webhooks/postex` do the same automatically (the header must match
-  `POSTEX_WEBHOOK_SECRET`; every push is logged in full). The courier status is
-  shown under the order and never replaces the order's own status.
+  returned tracking number is saved as the order's tracking ID, the order
+  becomes **Booked with courier** and its courier status **Unbooked** (as PostEx
+  shows a new booking). If PostEx refuses, its message is shown and nothing
+  changes. Booking here doesn't take stock off; dispatching in the logistics
+  portal does.
+- **Courier status drives the order status, forward only.** Status pushes to
+  `/webhooks/postex` (the header must match `POSTEX_WEBHOOK_SECRET`; every push
+  is logged in full) and **Refresh courier status** update it the same way
+  (`lib/courierStatus.js`):
+
+  | PostEx says | Order becomes |
+  |---|---|
+  | Unbooked, Booked, Picked By PostEx, En-Route to PostEx warehouse, PostEx WareHouse | Booked with courier |
+  | Out For Delivery, Package on Root | Dispatched (customer gets the dispatch email) |
+  | Delivered | Delivered (customer gets the delivered email) |
+  | Returned, Expired, Un-Assigned By Me, Delivery Under Review, Attempted | unchanged, with a red "Check" warning in admin |
+
+  An update that is earlier than what PostEx already reported is ignored, so a
+  late or repeated push never moves an order backward. Cancelled orders are
+  never changed.
+- **One-time fix on start:** orders booked before this change were set straight
+  to Dispatched. On start, each is checked with PostEx; if PostEx still shows it
+  as booked (e.g. Unbooked), it is corrected to Booked with courier and a line
+  `PostEx status fix: AUT-…` is written to the log.
 - **Cancelling** an order that has a tracking ID also cancels it at PostEx;
   if PostEx refuses (e.g. already picked up), admin shows a warning.
 
