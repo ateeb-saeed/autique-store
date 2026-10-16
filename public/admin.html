@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="autique admin">
-<link rel="stylesheet" href="/admin.css?v=19">
+<link rel="stylesheet" href="/admin.css?v=20">
 </head>
 <body>
 
@@ -323,6 +323,13 @@
         <button type="submit" class="btn-primary">Change password</button>
       </form>
 
+      <div class="settings-form" id="postexSettings" style="margin-top:24px;max-width:760px">
+        <h3 style="margin:0">PostEx courier</h3>
+        <p class="hint-text" id="postexState" style="margin:0"></p>
+        <div><button class="btn-secondary hidden" type="button" id="postexAddressBtn">Find my pickup address codes</button></div>
+        <div id="postexAddresses"></div>
+      </div>
+
       <form class="settings-form" id="logisticsPasswordForm" style="margin-top:24px">
         <p class="hint-text" style="margin:0">Logistics portal password &mdash; for the stock person at <a href="/logistics/">/logistics/</a>. They can view stock, restock and dispatch orders, but can't see prices or change anything else.</p>
         <label>New logistics password
@@ -359,7 +366,7 @@
   </form>
 </div>
 
-<script src="/admin.js?v=22"></script>
+<script src="/admin.js?v=23"></script>
 <script src="/admin-dashboard.js?v=15"></script>
 <script src="/admin-site.js?v=17"></script>
 <script src="/portal-app.js?v=15" data-app-name="autique admin" data-icon="/icons/admin-192.png?v=2" data-sw="/admin/sw.js"></script>

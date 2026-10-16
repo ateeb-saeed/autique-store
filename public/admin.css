@@ -333,3 +333,8 @@ input:focus, select:focus, textarea:focus{ outline:0; box-shadow:0 0 0 4px rgba(
 .badge.sale{ border-color:#c8601c; color:#c8601c; }
 .unl-tick{ display:inline-flex !important; flex-direction:row !important; align-items:center; gap:6px; margin-top:6px; font-size:0.78rem; font-weight:600; color:var(--ink-2); white-space:nowrap; cursor:pointer; }
 .unl-tick input{ width:auto !important; }
+
+/* PostEx */
+.postex-row{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-top:8px; }
+.courier-status{ display:block; font-size:0.78rem; color:var(--ink-2); margin-top:4px; }
+.courier-status b{ color:var(--ink); }

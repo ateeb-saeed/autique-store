@@ -1,12 +1,15 @@
 let categories = [];
 let products = [];
 let productTypes = [];
+let postexInfo = { configured: false };   // from /api/admin/me: PostEx buttons only when POSTEX_TOKEN is set
 
 // ---------- Auth ----------
 async function checkAdmin(){
   const res = await fetch('/api/admin/me');
   const data = await res.json();
   if(data.isAdmin){
+    postexInfo = data.postex || { configured: false };
+    renderPostexSettings();
     const badge = document.getElementById('paymentsModeBadge');
     badge.textContent = `Payments: ${String(data.paymentsMode).toUpperCase()}${data.paymentsConfigured ? '' : ' (off)'}`;
     badge.className = 'mode-badge ' + (data.paymentsMode === 'live' ? 'live' : 'sandbox');
@@ -651,6 +654,7 @@ async function loadOrders(){
           <button class="icon-btn tracking-save">Save</button>
         </div>
         <span class="tracking-msg"></span>
+        ${postexCell(o)}
       </td>
       <td>${new Date(o.createdAt).toLocaleDateString()}${o.dispatchedAt ? `<br><span style="color:var(--copper-dim);font-size:0.8rem">Dispatched ${new Date(o.dispatchedAt).toLocaleDateString()}${o.courier ? ` via ${o.courier}` : ''}${o.trackingNumber ? ` (${o.trackingNumber})` : ''}</span>` : ''}${emailSummary(o)}${['Dispatched', 'Shipped', 'Delivered'].includes(o.status) ? `<br><a class="link-btn" href="/api/logistics/orders/${o.id}/invoice.pdf" target="_blank" rel="noopener">Invoice PDF</a>` : ''}</td>
     </tr>
@@ -659,7 +663,9 @@ async function loadOrders(){
   tbody.querySelectorAll('.status-select').forEach(sel => {
     sel.addEventListener('change', async () => {
       const id = sel.closest('tr').dataset.id;
-      await fetch(`/api/admin/orders/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: sel.value }) });
+      const r = await fetch(`/api/admin/orders/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: sel.value }) });
+      const result = await r.json().catch(() => ({}));
+      if(result.warning) alert(result.warning);
       // these statuses email the customer; refresh to show it
       if(['Confirmed', 'Dispatched', 'Shipped', 'Delivered'].includes(sel.value)) setTimeout(loadOrders, 1200);
     });
@@ -677,7 +683,63 @@ async function loadOrders(){
       setTimeout(() => { msg.textContent = ''; }, 2500);
     });
   });
+
+  tbody.querySelectorAll('.postex-book').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if(!confirm('This creates a real pickup request with PostEx. Continue?')) return;
+      btn.disabled = true; btn.textContent = 'Booking…';
+      const id = btn.closest('tr').dataset.id;
+      const r = await fetch(`/api/admin/orders/${id}/postex/book`, { method:'POST' });
+      const data = await r.json().catch(() => ({}));
+      if(!r.ok){ alert(data.error || 'PostEx booking failed.'); btn.disabled = false; btn.textContent = 'Book with PostEx'; return; }
+      toast(`Booked with PostEx. Tracking number ${data.trackingNumber}.`);
+      loadOrders();
+    });
+  });
+  tbody.querySelectorAll('.postex-refresh').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true; btn.textContent = 'Checking…';
+      const id = btn.closest('tr').dataset.id;
+      const r = await fetch(`/api/admin/orders/${id}/postex/refresh`, { method:'POST' });
+      const data = await r.json().catch(() => ({}));
+      if(!r.ok){ toast(data.error || 'Could not get the courier status.', true); btn.disabled = false; btn.textContent = 'Refresh courier status'; return; }
+      loadOrders();
+    });
+  });
 }
+
+// PostEx: "Book with PostEx" until there is a tracking ID, then the courier's own status
+const fmtWhen = iso => iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+function postexCell(o){
+  const status = o.courierStatus ? `<span class="courier-status">PostEx: <b>${esc(o.courierStatus)}</b>${o.courierStatusAt ? ` &middot; ${fmtWhen(o.courierStatusAt)}` : ''}</span>` : '';
+  if(!postexInfo.configured) return status;
+  if(o.trackingId) return `<div class="postex-row"><button class="icon-btn postex-refresh" type="button">Refresh courier status</button>${status}</div>`;
+  if(o.status === 'Cancelled') return status;
+  return `<div class="postex-row"><button class="btn-primary btn-small postex-book" type="button">Book with PostEx</button></div>`;
+}
+
+// Admin settings → PostEx: setup status and the pickup address codes
+function renderPostexSettings(){
+  const box = document.getElementById('postexSettings');
+  if(!box) return;
+  const p = postexInfo;
+  box.querySelector('#postexState').innerHTML = p.configured
+    ? `PostEx is <b>on</b>. Pickup address code: ${p.pickupAddressCode ? `<b class="mono">${esc(p.pickupAddressCode)}</b>` : '<span style="color:var(--danger)">not set (POSTEX_PICKUP_ADDRESS_CODE)</span>'}. Status pushes: ${p.webhookConfigured ? `on (header <span class="mono">${esc(p.webhookHeader)}</span>)` : 'off (POSTEX_WEBHOOK_SECRET not set)'}.`
+    : 'PostEx is <b>off</b>: set POSTEX_TOKEN on the server to book pickups from here. Until then, tracking IDs are typed in by hand on each order.';
+  document.getElementById('postexAddressBtn').classList.toggle('hidden', !p.configured);
+}
+document.getElementById('postexAddressBtn').addEventListener('click', async e => {
+  const btn = e.target, out = document.getElementById('postexAddresses');
+  btn.disabled = true; out.innerHTML = '<p class="hint-text">Asking PostEx…</p>';
+  const r = await fetch('/api/admin/postex/addresses');
+  const data = await r.json().catch(() => ({}));
+  btn.disabled = false;
+  if(!r.ok){ out.innerHTML = `<p class="error-text">${esc(data.error || 'PostEx did not answer.')}</p>`; return; }
+  out.innerHTML = data.addresses.length
+    ? `<table class="data-table" style="margin-top:10px"><thead><tr><th>Address code</th><th>Address</th><th>City</th><th>Type</th></tr></thead><tbody>${data.addresses.map(a => `<tr><td class="mono"><b>${esc(a.addressCode)}</b>${a.addressCode === data.current ? ' <span class="badge on">in use</span>' : ''}</td><td>${esc(a.address)}</td><td>${esc(a.city)}</td><td>${esc(a.type)}</td></tr>`).join('')}</tbody></table>
+       <p class="hint-text" style="margin-top:8px">Put the code of the address PostEx should collect from into POSTEX_PICKUP_ADDRESS_CODE on Railway, then redeploy.</p>`
+    : '<p class="hint-text">PostEx returned no pickup addresses. Add one in the PostEx merchant portal first.</p>';
+});
 
 // ---------- Admin password ----------
 document.getElementById('passwordForm').addEventListener('submit', async (e) => {

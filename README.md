@@ -289,6 +289,33 @@ PKR checks apply in both modes.
 "Payments: LIVE", then place a small real order and watch the logs for
 `environment "LIVE" accepted`. To go back, set `RG_MODE=sandbox`.
 
+## PostEx courier (optional)
+
+Without `POSTEX_TOKEN` nothing changes: tracking IDs are typed in by hand on
+each order. With it, admin → Orders can book pickups directly:
+
+| Variable | What it is |
+|---|---|
+| `POSTEX_TOKEN` | Your PostEx merchant API token (sent as the `token` header; never logged). |
+| `POSTEX_PICKUP_ADDRESS_CODE` | Which of your PostEx pickup addresses to use. Admin settings → PostEx → **Find my pickup address codes** lists them. |
+| `POSTEX_WEBHOOK_SECRET` | Shared secret for status pushes to `https://autique.pk/webhooks/postex`. |
+| `POSTEX_WEBHOOK_HEADER` | Optional: the header that carries the secret (default `X-PostEx-Secret`). |
+
+- **Book with PostEx** (orders without a tracking ID) asks for confirmation,
+  then creates the PostEx order: city, name, phone, full address, order
+  number as reference, item list and count. The amount to collect is the order
+  total for cash on delivery and Rs. 0 for orders already paid online. The
+  returned tracking number is saved as the order's tracking ID and the order
+  becomes Dispatched (the customer gets the dispatch email with the tracking
+  link). If PostEx refuses, its message is shown and nothing changes.
+  Booking here doesn't take stock off; dispatching in the logistics portal does.
+- **Refresh courier status** asks PostEx for the latest status. Status pushes
+  to `/webhooks/postex` do the same automatically (the header must match
+  `POSTEX_WEBHOOK_SECRET`; every push is logged in full). The courier status is
+  shown under the order and never replaces the order's own status.
+- **Cancelling** an order that has a tracking ID also cancels it at PostEx;
+  if PostEx refuses (e.g. already picked up), admin shows a warning.
+
 ## Order emails
 
 The customer is emailed automatically at each stage, from `info@autique.pk`:

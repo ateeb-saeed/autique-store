@@ -9,6 +9,7 @@ const compression = require('compression');
 const store = require('./lib/store');
 const { effectivePrice, findCoupon, couponStatus, couponDiscount } = require('./lib/pricing');
 const gateway = require('./lib/rapidgateway');
+const postex = require('./lib/postex');
 const google = require('./lib/google');
 const site = require('./lib/siteConfig');
 const charges = require('./lib/charges');
@@ -120,6 +121,37 @@ app.post('/webhooks/rg', express.raw({ type: 'application/json' }), (req, res) =
   if (event.gatewayTxnRef && !order.rgPaymentId) order.rgPaymentId = event.gatewayTxnRef;
   store.saveOrders(orders);
   orderEmails.statusChanged(order, previousStatus);
+  res.status(200).json({ received: true });
+});
+
+// PostEx status push. There's no published payload format, so the raw body is
+// logged on every arrival and read defensively. The courier's status goes into
+// order.courierStatus only; the order's own status is never changed from here.
+// Always 200 once authorised, so PostEx doesn't keep retrying.
+app.post('/webhooks/postex', express.raw({ type: () => true, limit: '1mb' }), (req, res) => {
+  if (!postex.webhookAuthorized(req.get(postex.webhookHeader))) return res.status(401).json({ error: 'Unauthorized' });
+  const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  console.log(`PostEx webhook received: ${raw.slice(0, 10000)}`);
+  try {
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch { console.warn('PostEx webhook: body is not JSON; ignored.'); }
+    const { trackingNumber, status } = postex.readWebhook(payload);
+    if (!trackingNumber || !status) {
+      console.warn(`PostEx webhook: no ${!trackingNumber ? 'tracking number' : 'status'} found; nothing updated.`);
+    } else {
+      const orders = store.getOrders();
+      const order = orders.find(o => String(o.trackingId || '').trim().toUpperCase() === trackingNumber.toUpperCase());
+      if (!order) console.warn(`PostEx webhook: no order has tracking ID ${trackingNumber}; nothing updated.`);
+      else {
+        order.courierStatus = status;
+        order.courierStatusAt = new Date().toISOString();
+        store.saveOrders(orders);
+        console.log(`PostEx webhook: ${order.orderNumber} (${trackingNumber}) courier status "${status}".`);
+      }
+    }
+  } catch (e) {
+    console.error('PostEx webhook could not be processed:', e.message);
+  }
   res.status(200).json({ received: true });
 });
 
@@ -307,7 +339,7 @@ app.post('/api/admin/login', (req, res) => {
 
 app.post('/api/admin/logout', (req, res) => { req.session.isAdmin = false; res.json({ ok: true }); });
 
-app.get('/api/admin/me', (req, res) => { res.json({ isAdmin: !!req.session.isAdmin, paymentsMode: gateway.mode, paymentsConfigured: gateway.configured }); });
+app.get('/api/admin/me', (req, res) => { res.json({ isAdmin: !!req.session.isAdmin, paymentsMode: gateway.mode, paymentsConfigured: gateway.configured, postex: { configured: postex.configured, pickupAddressCode: postex.pickupAddressCode, webhookConfigured: postex.webhookConfigured, webhookHeader: postex.webhookHeader } }); });
 
 app.post('/api/admin/change-password', requireAdmin, (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
@@ -1113,7 +1145,7 @@ app.get('/api/admin/orders', requireAdmin, (req, res) => {
   res.json({ orders });
 });
 
-app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
+app.put('/api/admin/orders/:id', requireAdmin, async (req, res) => {
   const orders = store.getOrders();
   const order = orders.find(o => o.id === Number(req.params.id));
   if (!order) return res.status(404).json({ error: 'Order not found.' });
@@ -1126,7 +1158,75 @@ app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
   }
   store.saveOrders(orders);
   orderEmails.statusChanged(order, previousStatus);
-  res.json({ order: store.getOrders().find(o => o.id === order.id) });
+  let warning = '';
+  if (postex.configured && order.status === 'Cancelled' && previousStatus !== 'Cancelled' && order.trackingId) {
+    try {
+      await postex.cancelOrder(order.trackingId);
+      console.log(`PostEx booking ${order.trackingId} for ${order.orderNumber} cancelled.`);
+    } catch (e) {
+      console.warn(`PostEx cancellation of ${order.trackingId} (${order.orderNumber}) failed: ${e.message} ${e.body || ''}`);
+      warning = `The order is cancelled here, but PostEx did not cancel booking ${order.trackingId}: ${e.message}. It may already have been picked up, so check the PostEx portal.`;
+    }
+  }
+  res.json({ order: store.getOrders().find(o => o.id === order.id), warning });
+});
+
+// ---------- PostEx (only when POSTEX_TOKEN is set) ----------
+function requirePostex(req, res, next) {
+  if (!postex.configured) return res.status(404).json({ error: 'PostEx is not set up (POSTEX_TOKEN is missing).' });
+  next();
+}
+const bookingInProgress = new Set();   // one booking at a time per order, so a double click can't book twice
+app.post('/api/admin/orders/:id/postex/book', requireAdmin, requirePostex, async (req, res) => {
+  const id = Number(req.params.id);
+  const order = store.getOrders().find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  if (order.trackingId) return res.status(400).json({ error: `This order already has tracking ID ${order.trackingId}.` });
+  if (order.status === 'Cancelled') return res.status(400).json({ error: 'This order is cancelled.' });
+  if (isAwaitingCardPayment(order)) return res.status(400).json({ error: 'This online-payment order has not been paid yet.' });
+  if (bookingInProgress.has(id)) return res.status(409).json({ error: 'This order is already being booked. Wait a moment and refresh.' });
+  bookingInProgress.add(id);
+  try {
+    let booked;
+    try { booked = await postex.createOrder(order); }
+    catch (e) {
+      console.warn(`PostEx booking for ${order.orderNumber} failed: ${e.message} ${e.body || ''}`);
+      return res.status(502).json({ error: e.message, details: e.body || '' });
+    }
+    // re-read: the order may have changed while PostEx was answering
+    const orders = store.getOrders();
+    const fresh = orders.find(o => o.id === id);
+    const previousStatus = fresh.status;
+    fresh.trackingId = booked.trackingNumber;
+    if (!fresh.courier) fresh.courier = 'PostEx (Call Courier)';
+    fresh.postexBookedAt = new Date().toISOString();
+    if (fresh.status !== 'Dispatched') fresh.status = 'Dispatched';
+    store.saveOrders(orders);
+    console.log(`PostEx booking for ${fresh.orderNumber}: tracking number ${booked.trackingNumber}.`);
+    orderEmails.statusChanged(fresh, previousStatus);
+    res.json({ order: store.getOrders().find(o => o.id === id), trackingNumber: booked.trackingNumber });
+  } finally {
+    bookingInProgress.delete(id);
+  }
+});
+app.post('/api/admin/orders/:id/postex/refresh', requireAdmin, requirePostex, async (req, res) => {
+  const id = Number(req.params.id);
+  const order = store.getOrders().find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  if (!order.trackingId) return res.status(400).json({ error: 'This order has no tracking ID.' });
+  let tracked;
+  try { tracked = await postex.trackOrder(order.trackingId); }
+  catch (e) { return res.status(502).json({ error: e.message, details: e.body || '' }); }
+  const orders = store.getOrders();
+  const fresh = orders.find(o => o.id === id);
+  fresh.courierStatus = tracked.status;
+  fresh.courierStatusAt = new Date().toISOString();
+  store.saveOrders(orders);
+  res.json({ order: fresh });
+});
+app.get('/api/admin/postex/addresses', requireAdmin, requirePostex, async (req, res) => {
+  try { res.json({ addresses: await postex.merchantAddresses(), current: postex.pickupAddressCode }); }
+  catch (e) { res.status(502).json({ error: e.message, details: e.body || '' }); }
 });
 
 // =========================================================
